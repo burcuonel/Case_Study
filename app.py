@@ -30,12 +30,11 @@ st.markdown("""
     .university-logo {
         width: 80px;
         height: 80px;
-        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iOTAiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSI0IiBmaWxsPSJ3aGl0ZSIvPgo8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjgwIiBzdHJva2U9IiM5OTMzMzMiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIvPgo8dGV4dCB4PSIxMDAiIHk9IjUwIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjOTkzMzMzIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5BTE1BIE1BVEVSIHN0dWRpb3J1bTwvdGV4dD4KPHN2ZyB4PSI0MCIgeT0iNjAiIHdpZHRoPSIxMjAiIGhlaWdodD0iODAiPgo8cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjMwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjYwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjkwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjwvdGV4dD4KPC9zdmc+');
+        background-image: url('https://upload.wikimedia.org/wikipedia/en/thumb/5/53/Seal_of_the_University_of_Bologna.svg/200px-Seal_of_the_University_of_Bologna.svg.png');
         background-size: contain;
         background-repeat: no-repeat;
         background-position: center;
-        border-radius: 10px;
-        border: 2px solid #993333;
+        border-radius: 50%;
     }
     .sub-header {
         font-size: 1.5rem;
@@ -278,7 +277,7 @@ st.markdown('''
 </div>
 ''', unsafe_allow_html=True)
 
-st.caption("🔧 For official logo: grafica.comunicazione@unibo.it")
+st.caption("🏛️ University of Bologna - Founded 1088 - The First University in the World")
 st.markdown("---")
 
 # Sidebar
