@@ -27,14 +27,17 @@ st.markdown("""
         align-items: center;
         gap: 1rem;
     }
-    .university-logo {
-        width: 80px;
-        height: 80px;
-        background-image: url('https://upload.wikimedia.org/wikipedia/en/thumb/5/53/Seal_of_the_University_of_Bologna.svg/200px-Seal_of_the_University_of_Bologna.svg.png');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
+    .logo-placeholder {
+        width: 60px;
+        height: 60px;
+        background: #1f4e79;
         border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 1.2rem;
     }
     .sub-header {
         font-size: 1.5rem;
@@ -269,9 +272,9 @@ def train_custom_model(df_ml, target_var, selected_features):
 # Header with University Branding
 st.markdown('''
 <div class="main-header">
-    <div class="university-logo"></div>
+    <div class="logo-placeholder">UNIBO</div>
     <div>
-        <div style="font-size: 2.5rem; color: #993333;">Bologna University - Aula 0.4</div>
+        <div style="font-size: 2.5rem;">Bologna University - Aula 0.4</div>
         <div style="font-size: 1.2rem; color: #666;">(Digital Twin Prototype)</div>
     </div>
 </div>
