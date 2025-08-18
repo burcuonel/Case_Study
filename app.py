@@ -213,78 +213,113 @@ else:
         st.warning("Seçilen tarih aralığında veri yok.")
 
 # ==================
-# PREDICTION SECTION
+# Bu kodu app.py'nizde PREDICTION SECTION'dan önce ekleyin
+
 # ==================
-st.subheader("🔮 Tahmin Ekranı (RF & XGB)")
-rf_model = load_model(rf_path)
-xgb_model = load_model(xgb_path)
+# MODEL TRAINING SECTION
+# ==================
+st.subheader("🎯 Model Eğitimi")
 
-# Single input form
-st.markdown("**Tek Satır Giriş** – Feature alanlarını doldur ve modellerle tahmin al.")
-if FEATURE_COLUMNS:
-    single_input = build_feature_input_ui(FEATURE_COLUMNS)
-    aligned_single = align_features(single_input, FEATURE_COLUMNS)
+if not df.empty and FEATURE_COLUMNS:
+    available_features = [c for c in FEATURE_COLUMNS if c in df.columns]
+    
+    if len(available_features) >= 2:  # En az 2 feature olsun
+        with st.expander("Model Eğit", expanded=False):
+            # Target column seçimi
+            target_col = st.selectbox(
+                "Hedef sütunu seçin", 
+                options=[c for c in df.columns if c not in FEATURE_COLUMNS],
+                help="Tahmin edilecek değişkeni seçin"
+            )
+            
+            if target_col:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("🌲 RandomForest Eğit"):
+                        try:
+                            from sklearn.ensemble import RandomForestRegressor
+                            from sklearn.model_selection import train_test_split
+                            from sklearn.metrics import mean_squared_error, r2_score
+                            
+                            # Veri hazırlama
+                            X = df[available_features].fillna(0)
+                            y = df[target_col].fillna(0)
+                            
+                            # Train-test split
+                            X_train, X_test, y_train, y_test = train_test_split(
+                                X, y, test_size=0.2, random_state=42
+                            )
+                            
+                            # Model eğitimi
+                            rf_model = RandomForestRegressor(
+                                n_estimators=100, 
+                                random_state=42,
+                                n_jobs=-1
+                            )
+                            rf_model.fit(X_train, y_train)
+                            
+                            # Tahmin ve değerlendirme
+                            y_pred = rf_model.predict(X_test)
+                            mse = mean_squared_error(y_test, y_pred)
+                            r2 = r2_score(y_test, y_pred)
+                            
+                            # Model kaydetme
+                            joblib.dump(rf_model, "rf_model.pkl")
+                            
+                            st.success(f"✅ RF Model eğitildi!")
+                            st.metric("R² Score", f"{r2:.4f}")
+                            st.metric("MSE", f"{mse:.4f}")
+                            
+                            # Cache'i temizle ki yeni model yüklensin
+                            st.cache_resource.clear()
+                            
+                        except Exception as e:
+                            st.error(f"RF eğitim hatası: {e}")
+                
+                with col2:
+                    if st.button("🚀 XGBoost Eğit"):
+                        try:
+                            import xgboost as xgb
+                            from sklearn.model_selection import train_test_split
+                            from sklearn.metrics import mean_squared_error, r2_score
+                            
+                            # Veri hazırlama
+                            X = df[available_features].fillna(0)
+                            y = df[target_col].fillna(0)
+                            
+                            # Train-test split
+                            X_train, X_test, y_train, y_test = train_test_split(
+                                X, y, test_size=0.2, random_state=42
+                            )
+                            
+                            # Model eğitimi
+                            xgb_model = xgb.XGBRegressor(
+                                n_estimators=100,
+                                learning_rate=0.1,
+                                random_state=42,
+                                n_jobs=-1
+                            )
+                            xgb_model.fit(X_train, y_train)
+                            
+                            # Tahmin ve değerlendirme
+                            y_pred = xgb_model.predict(X_test)
+                            mse = mean_squared_error(y_test, y_pred)
+                            r2 = r2_score(y_test, y_pred)
+                            
+                            # Model kaydetme
+                            joblib.dump(xgb_model, "xgb_model.pkl")
+                            
+                            st.success(f"✅ XGB Model eğitildi!")
+                            st.metric("R² Score", f"{r2:.4f}")
+                            st.metric("MSE", f"{mse:.4f}")
+                            
+                            # Cache'i temizle ki yeni model yüklensin
+                            st.cache_resource.clear()
+                            
+                        except Exception as e:
+                            st.error(f"XGB eğitim hatası: {e}")
+    else:
+        st.info("Model eğitimi için en az 2 feature gerekli.")
 else:
-    st.error("FEATURE_COLUMNS boş. Soldan gir veya kodda tanımla.")
-    aligned_single = pd.DataFrame()
-
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("**RandomForest**")
-    if rf_model is not None and not aligned_single.empty:
-        try:
-            yhat = rf_model.predict(aligned_single)[0]
-            st.metric(label=f"{TARGET_NAME} (RF)", value=f"{yhat:.4f}")
-        except Exception as e:
-            st.error(f"RF tahmin hatası: {e}")
-    else:
-        st.info("RF modeli yok veya girişler eksik.")
-
-with col2:
-    st.markdown("**XGBoost**")
-    if xgb_model is not None and not aligned_single.empty:
-        try:
-            yhat = xgb_model.predict(aligned_single)[0]
-            st.metric(label=f"{TARGET_NAME} (XGB)", value=f"{yhat:.4f}")
-        except Exception as e:
-            st.error(f"XGB tahmin hatası: {e}")
-    else:
-        st.info("XGB modeli yok veya girişler eksik.")
-
-st.divider()
-
-# Batch prediction from dataset
-st.markdown("### 📦 Toplu Tahmin (Dataset'ten)")
-st.caption("Veri setinde FEATURE_COLUMNS mevcutsa, aynı sırayla kullanılarak tahmin edilir. Eksik olanlar 0 kabul edilir.")
-if FEATURE_COLUMNS:
-    available = [c for c in FEATURE_COLUMNS if c in df.columns]
-    missing = [c for c in FEATURE_COLUMNS if c not in df.columns]
-    if available:
-        X_all = pd.DataFrame()
-        for c in FEATURE_COLUMNS:
-            X_all[c] = df[c] if c in df.columns else 0.0
-        pred_cols = []
-        if rf_model is not None:
-            try:
-                df["pred_rf"] = rf_model.predict(X_all)
-                pred_cols.append("pred_rf")
-            except Exception as e:
-                st.error(f"RF toplu tahmin hatası: {e}")
-        if xgb_model is not None:
-            try:
-                df["pred_xgb"] = xgb_model.predict(X_all)
-                pred_cols.append("pred_xgb")
-            except Exception as e:
-                st.error(f"XGB toplu tahmin hatası: {e}")
-        if pred_cols:
-            st.success(f"Toplu tahmin tamamlandı. Eksik feature sayısı: {len(missing)}")
-            st.dataframe(df[[*available, *pred_cols]].head())
-            # Download
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Sonuçları CSV olarak indir", data=csv, file_name="predictions.csv", mime="text/csv")
-    else:
-        st.info("Dataset'te FEATURE_COLUMNS bulunamadı. İsimleri eşleştir.")
-else:
-    st.info("FEATURE_COLUMNS tanımlı değil.")
-
-st.caption("Not: Modeller sklearn Pipeline ise (ör. scaler + model) doğrudan yüklenip çalışır.")
+    st.info("Model eğitimi için veri ve feature listesi gerekli.")
