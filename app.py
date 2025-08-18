@@ -118,20 +118,22 @@ def categorize_sensors(df):
     """Categorizes sensors and calculates averages for each type"""
     sensor_categories = {}
     
-    # Temperature sensors (excluding radiator)
-    temp_cols = [c for c in df.columns if "temperature" in c.lower() and "radiator" not in c.lower()]
-    if temp_cols:
-        sensor_categories["Temperature"] = df[temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    # Wall temperature (exclude radiator)
+    wall_temp_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
+    if wall_temp_cols:
+        sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
     # Radiator temperature
     rad_temp_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower()]
     if rad_temp_cols:
         sensor_categories["Radiator Temperature"] = df[rad_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # Wall temperature
-    wall_temp_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
-    if wall_temp_cols:
-        sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    # General temperature (exclude wall and radiator)
+    temp_cols = [c for c in df.columns if "temperature" in c.lower() 
+                 and "radiator" not in c.lower() 
+                 and "wall" not in c.lower()]
+    if temp_cols:
+        sensor_categories["Temperature"] = df[temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
     # Relative Humidity
     humidity_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
@@ -164,7 +166,8 @@ def categorize_sensors(df):
         sensor_categories["Occupancy"] = df[occ_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
     # External Temperature
-    ext_cols = [c for c in df.columns if any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])]
+    ext_cols = [c for c in df.columns if any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])
+                and "temperature" in c.lower()]
     if ext_cols:
         sensor_categories["External Temperature"] = df[ext_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
@@ -273,7 +276,7 @@ st.markdown('''
 </div>
 ''', unsafe_allow_html=True)
 
-st.caption("📧 For official logo: grafica.comunicazione@unibo.it")
+st.caption("🔧 For official logo: grafica.comunicazione@unibo.it")
 st.markdown("---")
 
 # Sidebar
@@ -378,6 +381,8 @@ if not filtered.empty and param:
     with col4:
         st.metric("Std Dev", f"{filtered[param].std():.2f}")
 
+st.markdown("---")
+
 # =====================
 # ---- AVERAGED SENSOR PARAMETERS ----
 # =====================
@@ -388,65 +393,84 @@ st.markdown("**All sensor types with averaged values from multiple sensors**")
 sensor_categories = categorize_sensors(filtered)
 
 if sensor_categories:
-    # Create subplot figure
-    num_params = len(sensor_categories)
-    cols_per_row = 2
-    rows = (num_params + cols_per_row - 1) // cols_per_row
+    # Parameter selection for averaged sensors
+    col_param, col_stats = st.columns([2, 1])
     
-    fig = make_subplots(
-        rows=rows, 
-        cols=cols_per_row,
-        subplot_titles=list(sensor_categories.keys()),
-        vertical_spacing=0.08,
-        horizontal_spacing=0.1
-    )
+    with col_param:
+        st.markdown("**Select Averaged Parameter:**")
+        available_params = list(sensor_categories.keys())
+        selected_param = st.selectbox("", options=available_params, key="averaged_param_select", label_visibility="collapsed")
     
-    colors = px.colors.qualitative.Set3
-    
-    for i, (param_name, param_data) in enumerate(sensor_categories.items()):
-        row = i // cols_per_row + 1
-        col = i % cols_per_row + 1
-        
-        # Skip if all values are NaN
-        if param_data.notna().any():
-            fig.add_trace(
-                go.Scatter(
-                    x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
-                    y=param_data,
-                    mode='lines',
-                    name=param_name,
-                    line=dict(color=colors[i % len(colors)]),
-                    showlegend=False
-                ),
-                row=row, col=col
-            )
-    
-    fig.update_layout(
-        height=300 * rows,
-        title_text="Sensor Parameters Overview (Averaged Values)",
-        title_font_size=16
-    )
-    
-    # Update x-axis titles
-    for i in range(rows):
-        for j in range(cols_per_row):
-            fig.update_xaxes(title_text="Time", row=i+1, col=j+1)
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show parameter statistics
-    st.markdown("**📊 Parameter Statistics:**")
-    stats_cols = st.columns(min(len(sensor_categories), 4))
-    
-    for i, (param_name, param_data) in enumerate(sensor_categories.items()):
-        with stats_cols[i % len(stats_cols)]:
+    with col_stats:
+        st.markdown("**Parameter Info:**")
+        if selected_param in sensor_categories:
+            param_data = sensor_categories[selected_param]
             if param_data.notna().any():
-                st.markdown(f"**{param_name}**")
-                st.caption(f"Avg: {param_data.mean():.2f}")
-                st.caption(f"Range: {param_data.min():.2f} - {param_data.max():.2f}")
+                # Get original column count for this parameter
+                if selected_param == "Wall Temperature":
+                    orig_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
+                elif selected_param == "Radiator Temperature":
+                    orig_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower()]
+                elif selected_param == "Temperature":
+                    orig_cols = [c for c in df.columns if "temperature" in c.lower() 
+                                and "radiator" not in c.lower() 
+                                and "wall" not in c.lower()]
+                elif "Humidity" in selected_param:
+                    orig_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
+                elif "CO2" in selected_param:
+                    orig_cols = [c for c in df.columns if "co2" in c.lower()]
+                elif "TVOC" in selected_param:
+                    orig_cols = [c for c in df.columns if "tvoc" in c.lower()]
+                elif "HCHO" in selected_param:
+                    orig_cols = [c for c in df.columns if "hcho" in c.lower()]
+                elif "Light" in selected_param:
+                    orig_cols = [c for c in df.columns if "light" in c.lower() or "lux" in c.lower()]
+                elif "Occupancy" in selected_param:
+                    orig_cols = [c for c in df.columns if "occupancy" in c.lower() and "%" not in c]
+                elif "External" in selected_param:
+                    orig_cols = [c for c in df.columns if any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])
+                                and "temperature" in c.lower()]
+                else:
+                    orig_cols = []
+                
+                st.info(f"📊 Averaged from {len(orig_cols)} sensors\n\nData points: {param_data.notna().sum()}")
             else:
-                st.markdown(f"**{param_name}**")
-                st.caption("No valid data")
+                st.warning("No valid data")
+    
+    # Display selected parameter chart
+    if selected_param in sensor_categories:
+        param_data = sensor_categories[selected_param]
+        
+        if param_data.notna().any():
+            # Create single line chart
+            fig = px.line(
+                x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                y=param_data,
+                title=f"{selected_param} - Averaged Values ({agg})",
+                labels={"x": "Time", "y": selected_param}
+            )
+            
+            fig.update_layout(
+                height=400,
+                hovermode='x',
+                title_font_size=16,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show statistics for selected parameter
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Average", f"{param_data.mean():.2f}")
+            with col2:
+                st.metric("Max", f"{param_data.max():.2f}")
+            with col3:
+                st.metric("Min", f"{param_data.min():.2f}")
+            with col4:
+                st.metric("Std Dev", f"{param_data.std():.2f}")
+        else:
+            st.warning(f"No valid data available for {selected_param}")
 
 else:
     st.warning("No sensor categories could be identified from the data")
