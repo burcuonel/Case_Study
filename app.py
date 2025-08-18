@@ -27,17 +27,15 @@ st.markdown("""
         align-items: center;
         gap: 1rem;
     }
-    .logo-placeholder {
-        width: 60px;
-        height: 60px;
-        background: #1f4e79;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        font-size: 1.2rem;
+    .university-logo {
+        width: 80px;
+        height: 80px;
+        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iOTAiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSI0IiBmaWxsPSJ3aGl0ZSIvPgo8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjgwIiBzdHJva2U9IiM5OTMzMzMiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIvPgo8dGV4dCB4PSIxMDAiIHk9IjUwIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSIjOTkzMzMzIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5BTE1BIE1BVEVSIHN0dWRpb3J1bTwvdGV4dD4KPHN2ZyB4PSI0MCIgeT0iNjAiIHdpZHRoPSIxMjAiIGhlaWdodD0iODAiPgo8cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjMwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjYwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjkwIiB5PSIwIiB3aWR0aD0iMzAiIGhlaWdodD0iODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5MzMzMyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjwvdGV4dD4KPC9zdmc+');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        border-radius: 10px;
+        border: 2px solid #993333;
     }
     .sub-header {
         font-size: 1.5rem;
@@ -272,9 +270,9 @@ def train_custom_model(df_ml, target_var, selected_features):
 # Header with University Branding
 st.markdown('''
 <div class="main-header">
-    <div class="logo-placeholder">UNIBO</div>
+    <div class="university-logo"></div>
     <div>
-        <div style="font-size: 2.5rem;">Bologna University - Aula 0.4</div>
+        <div style="font-size: 2.5rem; color: #993333;">Bologna University - Aula 0.4</div>
         <div style="font-size: 1.2rem; color: #666;">(Digital Twin Prototype)</div>
     </div>
 </div>
