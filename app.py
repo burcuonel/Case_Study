@@ -118,20 +118,24 @@ def categorize_sensors(df):
     """Categorizes sensors and calculates averages for each type"""
     sensor_categories = {}
     
-    # Wall temperature (exclude radiator)
-    wall_temp_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
+    # First, collect all temperature columns
+    all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
+    
+    # Wall temperature (ONLY wall temperature, exclude radiator)
+    wall_temp_cols = [c for c in all_temp_cols if "wall" in c.lower() and "radiator" not in c.lower()]
     if wall_temp_cols:
         sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # Radiator temperature
-    rad_temp_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower()]
+    # Radiator temperature (ONLY radiator temperature, exclude wall)
+    rad_temp_cols = [c for c in all_temp_cols if "radiator" in c.lower() and "wall" not in c.lower()]
     if rad_temp_cols:
         sensor_categories["Radiator Temperature"] = df[rad_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # General temperature (exclude wall and radiator)
-    temp_cols = [c for c in df.columns if "temperature" in c.lower() 
-                 and "radiator" not in c.lower() 
-                 and "wall" not in c.lower()]
+    # General temperature (exclude BOTH wall AND radiator AND external)
+    temp_cols = [c for c in all_temp_cols 
+                 if "radiator" not in c.lower() 
+                 and "wall" not in c.lower()
+                 and not any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])]
     if temp_cols:
         sensor_categories["Temperature"] = df[temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
@@ -408,13 +412,15 @@ if sensor_categories:
             if param_data.notna().any():
                 # Get original column count for this parameter
                 if selected_param == "Wall Temperature":
-                    orig_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
+                    orig_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower() and "radiator" not in c.lower()]
                 elif selected_param == "Radiator Temperature":
-                    orig_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower()]
+                    orig_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower() and "wall" not in c.lower()]
                 elif selected_param == "Temperature":
-                    orig_cols = [c for c in df.columns if "temperature" in c.lower() 
-                                and "radiator" not in c.lower() 
-                                and "wall" not in c.lower()]
+                    all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
+                    orig_cols = [c for c in all_temp_cols 
+                                if "radiator" not in c.lower() 
+                                and "wall" not in c.lower()
+                                and not any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])]
                 elif "Humidity" in selected_param:
                     orig_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
                 elif "CO2" in selected_param:
