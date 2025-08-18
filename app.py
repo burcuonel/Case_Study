@@ -152,16 +152,65 @@ if not num_cols:
 else:
     param = st.selectbox("Parametre seç", options=num_cols, index=0)
 
-    # Optional date filter
+    # Optional date filter - FIXED SECTION
     filtered = base
     if DT and DT in base.columns:
-        min_dt, max_dt = base[DT].min(), base[DT].max()
-        start, end = st.slider("Tarih aralığı", value=(min_dt, max_dt), min_value=min_dt, max_value=max_dt)
-        mask = (base[DT] >= start) & (base[DT] <= end)
-        filtered = base.loc[mask]
+        # Convert to datetime if needed and ensure consistent types
+        base[DT] = pd.to_datetime(base[DT])
+        
+        # Get min/max as datetime objects
+        min_dt = base[DT].min()
+        max_dt = base[DT].max()
+        
+        # Ensure both are pandas Timestamp objects
+        if pd.isna(min_dt) or pd.isna(max_dt):
+            st.warning("Tarih sütununda geçersiz değerler var.")
+        else:
+            # Convert to datetime.date for slider compatibility
+            min_date = min_dt.date() if hasattr(min_dt, 'date') else min_dt
+            max_date = max_dt.date() if hasattr(max_dt, 'date') else max_dt
+            
+            start_date, end_date = st.slider(
+                "Tarih aralığı", 
+                value=(min_date, max_date), 
+                min_value=min_date, 
+                max_value=max_date,
+                format="DD/MM/YYYY"
+            )
+            
+            # Convert back to datetime for filtering
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            
+            mask = (base[DT] >= start_dt) & (base[DT] <= end_dt)
+            filtered = base.loc[mask]
 
-    fig = px.line(filtered, x=DT if DT and DT in filtered.columns else filtered.index, y=param, title=f"{param} Zaman Serisi")
-    st.plotly_chart(fig, use_container_width=True)
+    if not filtered.empty:
+        fig = px.line(
+            filtered, 
+            x=DT if DT and DT in filtered.columns else filtered.index, 
+            y=param, 
+            title=f"{param} Zaman Serisi"
+        )
+        fig.update_layout(
+            xaxis_title="Zaman" if DT else "Index",
+            yaxis_title=param,
+            hovermode='x'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Show some stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Ortalama", f"{filtered[param].mean():.2f}")
+        with col2:
+            st.metric("Maksimum", f"{filtered[param].max():.2f}")
+        with col3:
+            st.metric("Minimum", f"{filtered[param].min():.2f}")
+        with col4:
+            st.metric("Standart Sapma", f"{filtered[param].std():.2f}")
+    else:
+        st.warning("Seçilen tarih aralığında veri yok.")
 
 # ==================
 # PREDICTION SECTION
@@ -171,7 +220,7 @@ rf_model = load_model(rf_path)
 xgb_model = load_model(xgb_path)
 
 # Single input form
-st.markdown("**Tek Satır Giriş** — Feature alanlarını doldur ve modellerle tahmin al.")
+st.markdown("**Tek Satır Giriş** – Feature alanlarını doldur ve modellerle tahmin al.")
 if FEATURE_COLUMNS:
     single_input = build_feature_input_ui(FEATURE_COLUMNS)
     aligned_single = align_features(single_input, FEATURE_COLUMNS)
