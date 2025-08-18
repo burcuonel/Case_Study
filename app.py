@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -21,6 +23,21 @@ st.markdown("""
         font-weight: 600;
         margin-bottom: 0.5rem;
         color: #1f4e79;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .logo-placeholder {
+        width: 60px;
+        height: 60px;
+        background: #1f4e79;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 1.2rem;
     }
     .sub-header {
         font-size: 1.5rem;
@@ -40,6 +57,13 @@ st.markdown("""
         padding: 1rem;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .parameter-group {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        border: 1px solid #e9ecef;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -90,81 +114,104 @@ def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFr
     out = g[num_cols].resample(rule).mean().reset_index()
     return out
 
-def prepare_ml_data(df):
-    """Automatically prepares dataset for machine learning"""
-    df_ml = df.copy()
+def categorize_sensors(df):
+    """Categorizes sensors and calculates averages for each type"""
+    sensor_categories = {}
     
-    # 1. Wall temperature (target variable)
-    wall_cols = [c for c in df_ml.columns if "wall" in c.lower() and "temperature" in c.lower() and "radiator" not in c.lower()]
-    if wall_cols:
-        df_ml["WallTemp"] = df_ml[wall_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    # Temperature sensors (excluding radiator)
+    temp_cols = [c for c in df.columns if "temperature" in c.lower() and "radiator" not in c.lower()]
+    if temp_cols:
+        sensor_categories["Temperature"] = df[temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 2. Radiator temperature
-    rad_cols = [c for c in df_ml.columns if "radiator" in c.lower() and "temperature" in c.lower()]
-    if rad_cols:
-        df_ml["RadiatorTemp"] = df_ml[rad_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    # Radiator temperature
+    rad_temp_cols = [c for c in df.columns if "radiator" in c.lower() and "temperature" in c.lower()]
+    if rad_temp_cols:
+        sensor_categories["Radiator Temperature"] = df[rad_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 3. Occupancy
-    occ_cols = [c for c in df_ml.columns if "occupancy" in c.lower() and "%" not in c]
-    if occ_cols:
-        df_ml["Occupancy"] = df_ml[occ_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    # Wall temperature
+    wall_temp_cols = [c for c in df.columns if "wall" in c.lower() and "temperature" in c.lower()]
+    if wall_temp_cols:
+        sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 4. CO2
-    co2_cols = [c for c in df_ml.columns if "co2" in c.lower()]
+    # Relative Humidity
+    humidity_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
+    if humidity_cols:
+        sensor_categories["Relative Humidity"] = df[humidity_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # CO2
+    co2_cols = [c for c in df.columns if "co2" in c.lower()]
     if co2_cols:
-        df_ml["CO2"] = df_ml[co2_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+        sensor_categories["CO2"] = df[co2_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 5. External temperature
-    ext_cols = [c for c in df_ml.columns if any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])]
+    # TVOC
+    tvoc_cols = [c for c in df.columns if "tvoc" in c.lower()]
+    if tvoc_cols:
+        sensor_categories["TVOC"] = df[tvoc_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # HCHO
+    hcho_cols = [c for c in df.columns if "hcho" in c.lower()]
+    if hcho_cols:
+        sensor_categories["HCHO"] = df[hcho_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # Light
+    light_cols = [c for c in df.columns if "light" in c.lower() or "lux" in c.lower()]
+    if light_cols:
+        sensor_categories["Light"] = df[light_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # Occupancy
+    occ_cols = [c for c in df.columns if "occupancy" in c.lower() and "%" not in c]
+    if occ_cols:
+        sensor_categories["Occupancy"] = df[occ_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # External Temperature
+    ext_cols = [c for c in df.columns if any(x in c.lower() for x in ["roof", "external", "outdoor", "outside"])]
     if ext_cols:
-        df_ml["ExternalTemp"] = df_ml[ext_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
-    else:
-        df_ml["ExternalTemp"] = 15.0  # Default
+        sensor_categories["External Temperature"] = df[ext_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 6. Time features (with better error handling)
-    dt_col = get_datetime_column(df_ml)
+    return sensor_categories
+
+def prepare_ml_data(df):
+    """Prepares data for machine learning with all available features"""
+    sensor_data = categorize_sensors(df)
+    
+    # Add time features if datetime column exists
+    dt_col = get_datetime_column(df)
     if dt_col:
         try:
-            df_ml[dt_col] = pd.to_datetime(df_ml[dt_col], errors="coerce")
-            valid_dates = df_ml[dt_col].notna()
+            df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+            valid_dates = df[dt_col].notna()
             if valid_dates.any():
-                df_ml["Hour"] = df_ml[dt_col].dt.hour
-                df_ml["Weekday"] = df_ml[dt_col].dt.weekday
-                df_ml["Month"] = df_ml[dt_col].dt.month
+                sensor_data["Hour"] = df[dt_col].dt.hour
+                sensor_data["Weekday"] = df[dt_col].dt.weekday
+                sensor_data["Month"] = df[dt_col].dt.month
         except Exception as e:
             st.warning(f"Could not process datetime column '{dt_col}': {str(e)}")
     
-    return df_ml
+    return pd.DataFrame(sensor_data)
 
-def train_models(df_ml):
-    """Trains Random Forest and XGBoost models"""
+def train_custom_model(df_ml, target_var, selected_features):
+    """Trains models with user-selected target and features"""
     
-    # Define features based on available columns
-    features = []
-    if "Occupancy" in df_ml.columns and df_ml["Occupancy"].notna().any():
-        features.append("Occupancy")
-    if "RadiatorTemp" in df_ml.columns and df_ml["RadiatorTemp"].notna().any():
-        features.append("RadiatorTemp")
-    if "CO2" in df_ml.columns and df_ml["CO2"].notna().any():
-        features.append("CO2")
-    if "ExternalTemp" in df_ml.columns and df_ml["ExternalTemp"].notna().any():
-        features.append("ExternalTemp")
-    if "Hour" in df_ml.columns and df_ml["Hour"].notna().any():
-        features.append("Hour")
-    if "Weekday" in df_ml.columns and df_ml["Weekday"].notna().any():
-        features.append("Weekday")
+    if target_var not in df_ml.columns:
+        return None, None, None, f"Target variable '{target_var}' not found"
     
-    if "WallTemp" not in df_ml.columns or len(features) < 2:
-        return None, None, None, "Insufficient data columns"
+    if len(selected_features) < 1:
+        return None, None, None, "At least 1 feature must be selected"
+    
+    # Check if selected features exist
+    available_features = [f for f in selected_features if f in df_ml.columns]
+    if len(available_features) < 1:
+        return None, None, None, "None of the selected features are available in the data"
     
     # Clean data
-    df_clean = df_ml[features + ["WallTemp"]].dropna()
+    feature_cols = available_features + [target_var]
+    df_clean = df_ml[feature_cols].dropna()
     
     if len(df_clean) < 10:
-        return None, None, None, "Insufficient data rows"
+        return None, None, None, "Insufficient data rows (need at least 10)"
     
-    X = df_clean[features]
-    y = df_clean["WallTemp"]
+    X = df_clean[available_features]
+    y = df_clean[target_var]
     
     try:
         from sklearn.ensemble import RandomForestRegressor
@@ -194,7 +241,8 @@ def train_models(df_ml):
         metrics = {
             "rf_mae": rf_mae,
             "rf_r2": rf_r2,
-            "features": features,
+            "features": available_features,
+            "target": target_var,
             "n_samples": len(df_clean)
         }
         
@@ -215,7 +263,17 @@ def train_models(df_ml):
 # =====================
 
 # Header with University Branding
-st.markdown('<div class="main-header">🏛️ Bologna University - Aula 0.4 (Digital Twin Prototype)</div>', unsafe_allow_html=True)
+st.markdown('''
+<div class="main-header">
+    <div class="logo-placeholder">UNIBO</div>
+    <div>
+        <div style="font-size: 2.5rem;">Bologna University - Aula 0.4</div>
+        <div style="font-size: 1.2rem; color: #666;">(Digital Twin Prototype)</div>
+    </div>
+</div>
+''', unsafe_allow_html=True)
+
+st.caption("📧 For official logo: grafica.comunicazione@unibo.it")
 st.markdown("---")
 
 # Sidebar
@@ -293,13 +351,13 @@ if DT and DT in base.columns:
 else:
     filtered = base
 
-# Display chart
+# Display first chart
 if not filtered.empty and param:
     fig = px.line(
         filtered,
         x=DT if DT and DT in filtered.columns else filtered.index,
         y=param,
-        title=f"{param} - Time Series (Monthly)",
+        title=f"{param} - Time Series ({agg})",
         labels={"x": "Time", "y": param}
     )
     fig.update_layout(
@@ -320,6 +378,79 @@ if not filtered.empty and param:
     with col4:
         st.metric("Std Dev", f"{filtered[param].std():.2f}")
 
+# =====================
+# ---- AVERAGED SENSOR PARAMETERS ----
+# =====================
+st.markdown('<div class="sub-header">📈 Averaged Sensor Parameters</div>', unsafe_allow_html=True)
+st.markdown("**All sensor types with averaged values from multiple sensors**")
+
+# Get categorized sensor data
+sensor_categories = categorize_sensors(filtered)
+
+if sensor_categories:
+    # Create subplot figure
+    num_params = len(sensor_categories)
+    cols_per_row = 2
+    rows = (num_params + cols_per_row - 1) // cols_per_row
+    
+    fig = make_subplots(
+        rows=rows, 
+        cols=cols_per_row,
+        subplot_titles=list(sensor_categories.keys()),
+        vertical_spacing=0.08,
+        horizontal_spacing=0.1
+    )
+    
+    colors = px.colors.qualitative.Set3
+    
+    for i, (param_name, param_data) in enumerate(sensor_categories.items()):
+        row = i // cols_per_row + 1
+        col = i % cols_per_row + 1
+        
+        # Skip if all values are NaN
+        if param_data.notna().any():
+            fig.add_trace(
+                go.Scatter(
+                    x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                    y=param_data,
+                    mode='lines',
+                    name=param_name,
+                    line=dict(color=colors[i % len(colors)]),
+                    showlegend=False
+                ),
+                row=row, col=col
+            )
+    
+    fig.update_layout(
+        height=300 * rows,
+        title_text="Sensor Parameters Overview (Averaged Values)",
+        title_font_size=16
+    )
+    
+    # Update x-axis titles
+    for i in range(rows):
+        for j in range(cols_per_row):
+            fig.update_xaxes(title_text="Time", row=i+1, col=j+1)
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Show parameter statistics
+    st.markdown("**📊 Parameter Statistics:**")
+    stats_cols = st.columns(min(len(sensor_categories), 4))
+    
+    for i, (param_name, param_data) in enumerate(sensor_categories.items()):
+        with stats_cols[i % len(stats_cols)]:
+            if param_data.notna().any():
+                st.markdown(f"**{param_name}**")
+                st.caption(f"Avg: {param_data.mean():.2f}")
+                st.caption(f"Range: {param_data.min():.2f} - {param_data.max():.2f}")
+            else:
+                st.markdown(f"**{param_name}**")
+                st.caption("No valid data")
+
+else:
+    st.warning("No sensor categories could be identified from the data")
+
 st.markdown("---")
 
 # =====================
@@ -327,90 +458,148 @@ st.markdown("---")
 # =====================
 st.markdown('<div class="sub-header">🤖 AI Prediction Model</div>', unsafe_allow_html=True)
 
-# Auto-prepare data for ML
+# Prepare ML data
 df_ml = prepare_ml_data(df)
 
+# Model configuration section
+st.markdown("**🎯 Model Configuration**")
+
+col_config1, col_config2 = st.columns(2)
+
+with col_config1:
+    st.markdown("**Select Target Variable:**")
+    available_targets = [col for col in df_ml.columns if df_ml[col].notna().any()]
+    if available_targets:
+        target_variable = st.selectbox("What do you want to predict?", available_targets, key="target_select")
+    else:
+        st.error("No valid target variables found")
+        st.stop()
+
+with col_config2:
+    st.markdown("**Select Input Features:**")
+    available_features = [col for col in df_ml.columns if col != target_variable and df_ml[col].notna().any()]
+    if available_features:
+        selected_features = st.multiselect(
+            "Choose input parameters:",
+            available_features,
+            default=available_features[:min(5, len(available_features))],
+            key="features_select"
+        )
+    else:
+        st.error("No valid features found")
+        st.stop()
+
+# Data inspection and training
 col1, col2 = st.columns([1, 1])
 
 with col1:
     st.markdown("**🔍 Data Inspection**")
     if st.button("Inspect Data", use_container_width=True):
         with st.expander("Data Details", expanded=True):
-            st.write("**Original columns:**")
-            st.write(list(df.columns))
+            st.write("**Available parameters:**")
+            st.write(list(df_ml.columns))
             
-            ml_features = ["WallTemp", "RadiatorTemp", "Occupancy", "CO2", "ExternalTemp", "Hour", "Weekday"]
-            available_ml_features = [f for f in ml_features if f in df_ml.columns]
-            st.write("**Generated ML features:**")
-            st.write(available_ml_features)
+            st.write(f"**Selected target:** {target_variable}")
+            st.write(f"**Selected features:** {selected_features}")
             
-            if available_ml_features:
+            if selected_features:
                 st.write("**Sample data:**")
-                st.dataframe(df_ml[available_ml_features].head())
+                display_cols = selected_features + [target_variable]
+                st.dataframe(df_ml[display_cols].head())
+                
+                st.write("**Data completeness:**")
+                completeness = df_ml[display_cols].notna().mean() * 100
+                for col in display_cols:
+                    st.write(f"- {col}: {completeness[col]:.1f}% complete")
 
 with col2:
     st.markdown("**🎯 Train Model**")
-    if st.button("Train Model", use_container_width=True):
-        with st.spinner("🔄 Training models..."):
-            rf_model, xgb_model, metrics, error = train_models(df_ml)
-            
-            if error:
-                st.error(f"❌ Error: {error}")
-            else:
-                # Store in session state
-                st.session_state['rf_model'] = rf_model
-                st.session_state['xgb_model'] = xgb_model
-                st.session_state['metrics'] = metrics
-                st.session_state['features'] = metrics['features']
+    if st.button("Train Custom Model", use_container_width=True):
+        if not selected_features:
+            st.error("Please select at least one feature")
+        else:
+            with st.spinner("🔄 Training models..."):
+                rf_model, xgb_model, metrics, error = train_custom_model(df_ml, target_variable, selected_features)
                 
-                st.success("✅ Models trained successfully!")
+                if error:
+                    st.error(f"❌ Error: {error}")
+                else:
+                    # Store in session state
+                    st.session_state['rf_model'] = rf_model
+                    st.session_state['xgb_model'] = xgb_model
+                    st.session_state['metrics'] = metrics
+                    st.session_state['selected_features'] = selected_features
+                    st.session_state['target_variable'] = target_variable
+                    
+                    st.success("✅ Models trained successfully!")
 
-# Model Information Box
+# Model Information
 if 'metrics' in st.session_state:
     metrics = st.session_state['metrics']
     
-    st.markdown("**Model Information**")
+    st.markdown("**📈 Model Information**")
     col_info1, col_info2 = st.columns(2)
     with col_info1:
-        st.info(f"✅ Models Ready\n\nData: {metrics['n_samples']} rows")
+        st.info(f"✅ Models Ready\n\nTarget: {metrics['target']}\nData: {metrics['n_samples']} rows")
     with col_info2:
-        st.info(f"🔧 Features: {len(metrics['features'])}\n\nTarget: Wall Temperature")
+        st.info(f"🔧 Features: {len(metrics['features'])}\n\nFeatures: {', '.join(metrics['features'][:3])}{'...' if len(metrics['features']) > 3 else ''}")
 
 # =====================
-# ---- FEATURE SELECTION ----
+# ---- FEATURE INPUT ----
 # =====================
-if 'features' in st.session_state:
-    st.markdown("**📋 Select Features ➽ Number of Features: " + str(len(st.session_state['features'])) + " ➕➖**")
+if 'selected_features' in st.session_state and 'target_variable' in st.session_state:
+    st.markdown(f"**📋 Input Features for {st.session_state['target_variable']} Prediction**")
+    st.markdown(f"**Number of Features: {len(st.session_state['selected_features'])} ➕➖**")
     
-    features = st.session_state['features']
+    features = st.session_state['selected_features']
+    
+    # Create input widgets based on feature type
     feature_cols = st.columns(min(len(features), 3))
     inputs = {}
     
     for i, feature in enumerate(features):
         with feature_cols[i % len(feature_cols)]:
-            if feature == "CO2":
+            # Set appropriate defaults and ranges based on feature name
+            if "CO2" in feature:
                 inputs[feature] = st.number_input(f"🌬️ {feature}", value=400, min_value=300, max_value=2000, key=f"input_{feature}")
-            elif feature == "Occupancy":
+            elif "Occupancy" in feature:
                 inputs[feature] = st.number_input(f"👥 {feature}", value=20, min_value=0, max_value=100, key=f"input_{feature}")
-            elif feature == "RadiatorTemp":
-                inputs[feature] = st.number_input(f"🔥 RadiatorTemp", value=55.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
-            elif feature == "Hour":
+            elif "Temperature" in feature:
+                if "Radiator" in feature:
+                    inputs[feature] = st.number_input(f"🔥 {feature}", value=55.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+                elif "External" in feature:
+                    inputs[feature] = st.number_input(f"🌡️ {feature}", value=15.0, min_value=-20.0, max_value=40.0, key=f"input_{feature}")
+                else:
+                    inputs[feature] = st.number_input(f"🌡️ {feature}", value=22.0, min_value=0.0, max_value=50.0, key=f"input_{feature}")
+            elif "Humidity" in feature:
+                inputs[feature] = st.number_input(f"💧 {feature}", value=45.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+            elif "Hour" in feature:
                 inputs[feature] = st.number_input(f"🕐 {feature}", value=12, min_value=0, max_value=23, key=f"input_{feature}")
-            elif feature == "ExternalTemp":
-                inputs[feature] = st.number_input(f"🌡️ Ext.Temp", value=15.0, min_value=-20.0, max_value=40.0, key=f"input_{feature}")
+            elif "Weekday" in feature:
+                inputs[feature] = st.selectbox(f"📅 {feature}", 
+                                             options=[0,1,2,3,4,5,6], 
+                                             format_func=lambda x: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][x],
+                                             key=f"input_{feature}")
+            elif "Light" in feature:
+                inputs[feature] = st.number_input(f"💡 {feature}", value=300, min_value=0, max_value=2000, key=f"input_{feature}")
+            elif "TVOC" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=100, min_value=0, max_value=1000, key=f"input_{feature}")
+            elif "HCHO" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=50, min_value=0, max_value=500, key=f"input_{feature}")
             else:
                 inputs[feature] = st.number_input(f"📊 {feature}", value=0.0, key=f"input_{feature}")
 
 # =====================
 # ---- PREDICTION RESULTS ----
 # =====================
-if 'rf_model' in st.session_state and 'features' in st.session_state:
+if 'rf_model' in st.session_state and 'selected_features' in st.session_state:
     st.markdown("**🎯 Prediction Results**")
     
     if st.button("🔮 Predict", use_container_width=True):
         try:
             rf_model = st.session_state['rf_model']
             xgb_model = st.session_state.get('xgb_model')
+            target_var = st.session_state['target_variable']
             
             # Prepare input data
             input_df = pd.DataFrame([inputs])
@@ -422,17 +611,23 @@ if 'rf_model' in st.session_state and 'features' in st.session_state:
             
             with col_rf:
                 st.markdown("**Random Forest**")
-                st.markdown(f"### {rf_pred:.1f}°C")
+                # Add units based on target variable
+                unit = "°C" if "Temperature" in target_var else ""
+                unit = "%" if "Humidity" in target_var else unit
+                unit = "ppm" if "CO2" in target_var else unit
+                unit = "lux" if "Light" in target_var else unit
+                
+                st.markdown(f"### {rf_pred:.1f}{unit}")
                 if 'metrics' in st.session_state:
-                    st.caption(f"MAE ± {st.session_state['metrics']['rf_mae']:.2f}°C")
+                    st.caption(f"MAE ± {st.session_state['metrics']['rf_mae']:.2f}{unit}")
             
             with col_xgb:
                 st.markdown("**XGBoost**")
                 if xgb_model:
                     xgb_pred = xgb_model.predict(input_df)[0]
-                    st.markdown(f"### {xgb_pred:.1f}°C")
+                    st.markdown(f"### {xgb_pred:.1f}{unit}")
                     if 'metrics' in st.session_state and 'xgb_mae' in st.session_state['metrics']:
-                        st.caption(f"MAE ± {st.session_state['metrics']['xgb_mae']:.2f}°C")
+                        st.caption(f"MAE ± {st.session_state['metrics']['xgb_mae']:.2f}{unit}")
                 else:
                     st.markdown("### Not Available")
                     st.caption("XGBoost not installed")
@@ -441,7 +636,7 @@ if 'rf_model' in st.session_state and 'features' in st.session_state:
             st.error(f"Prediction error: {str(e)}")
 
 else:
-    st.info("🎯 Train the models first to make predictions.")
+    st.info("🎯 Configure and train the model first to make predictions.")
 
 # Footer
 st.markdown("---")
