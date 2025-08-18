@@ -36,21 +36,32 @@ def load_dataframe(file) -> pd.DataFrame:
     else:
         df = pd.read_csv(file)
     
-    # Try to find datetime column
+    # Try to find and convert datetime column
     dt_candidates = [c for c in df.columns if any(x in str(c).lower() for x in ["datetime","time","timestamp","date","hour"])]
     for c in dt_candidates:
         try:
-            df[c] = pd.to_datetime(df[c], errors="raise")
-            df = df.sort_values(c)
-            break
+            # Try different datetime conversion methods
+            original_values = df[c].copy()
+            df[c] = pd.to_datetime(df[c], errors="coerce")
+            
+            # Check if conversion was successful (not all NaT)
+            if df[c].notna().any():
+                df = df.sort_values(c)
+                break
+            else:
+                # Restore original values if conversion failed
+                df[c] = original_values
         except Exception:
             continue
     return df
 
 def get_datetime_column(df: pd.DataFrame) -> Optional[str]:
     for c in df.columns:
-        if np.issubdtype(df[c].dtype, np.datetime64):
-            return c
+        try:
+            if np.issubdtype(df[c].dtype, np.datetime64):
+                return c
+        except Exception:
+            continue
     return None
 
 @st.cache_data(show_spinner=False)
@@ -93,12 +104,22 @@ def prepare_ml_data(df):
     else:
         df_ml["ExternalTemp"] = 15.0  # Default
     
-    # 6. Time features
+    # 6. Time features (with better error handling)
     dt_col = get_datetime_column(df_ml)
     if dt_col:
-        df_ml["Hour"] = df_ml[dt_col].dt.hour
-        df_ml["Weekday"] = df_ml[dt_col].dt.weekday
-        df_ml["Month"] = df_ml[dt_col].dt.month
+        try:
+            # Ensure the column is properly datetime
+            df_ml[dt_col] = pd.to_datetime(df_ml[dt_col], errors="coerce")
+            
+            # Only create time features if we have valid datetime values
+            valid_dates = df_ml[dt_col].notna()
+            if valid_dates.any():
+                df_ml["Hour"] = df_ml[dt_col].dt.hour
+                df_ml["Weekday"] = df_ml[dt_col].dt.weekday
+                df_ml["Month"] = df_ml[dt_col].dt.month
+        except Exception as e:
+            # If datetime conversion fails, skip time features
+            st.warning(f"Could not process datetime column '{dt_col}': {str(e)}")
     
     return df_ml
 
@@ -266,6 +287,27 @@ st.subheader("🤖 AI Prediction Models")
 
 # Auto-prepare data for ML
 df_ml = prepare_ml_data(df)
+
+# Debug information
+with st.expander("🔍 Data Inspection", expanded=False):
+    st.write("**Original columns:**")
+    st.write(list(df.columns))
+    
+    st.write("**Generated ML features:**")
+    ml_features = ["WallTemp", "RadiatorTemp", "Occupancy", "CO2", "ExternalTemp", "Hour", "Weekday"]
+    available_ml_features = [f for f in ml_features if f in df_ml.columns]
+    st.write(available_ml_features)
+    
+    if available_ml_features:
+        st.write("**Sample data:**")
+        st.dataframe(df_ml[available_ml_features].head())
+    
+    datetime_col = get_datetime_column(df)
+    if datetime_col:
+        st.write(f"**Datetime column detected:** {datetime_col}")
+        st.write(f"**Sample datetime values:** {df[datetime_col].head().tolist()}")
+    else:
+        st.write("**No datetime column detected**")
 
 col1, col2 = st.columns([1, 1])
 
