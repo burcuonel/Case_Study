@@ -8,20 +8,41 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 st.set_page_config(
-    page_title="Digital Twin - Sensor Dashboard + AI Prediction",
+    page_title="Bologna University - Digital Twin Prototype",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# =====================
-# ---- SIDEBAR UI -----
-# =====================
-with st.sidebar:
-    st.header("⚙️ Settings")
-    uploaded = st.file_uploader("Upload Data (CSV/XLSX)", type=["csv","xlsx","xls"], accept_multiple_files=False)
-    
-    st.subheader("⏱️ Aggregation Level")
-    agg = st.selectbox("Time Scale", ["Raw", "Hourly", "Daily", "Monthly"], index=0)
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #1f4e79;
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin: 1rem 0;
+        color: #2c5282;
+    }
+    .feature-box {
+        background: #f7fafc;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #3182ce;
+        margin: 0.5rem 0;
+    }
+    .metric-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =====================
 # ---- HELPER FUNCTIONS -----
@@ -40,16 +61,12 @@ def load_dataframe(file) -> pd.DataFrame:
     dt_candidates = [c for c in df.columns if any(x in str(c).lower() for x in ["datetime","time","timestamp","date","hour"])]
     for c in dt_candidates:
         try:
-            # Try different datetime conversion methods
             original_values = df[c].copy()
             df[c] = pd.to_datetime(df[c], errors="coerce")
-            
-            # Check if conversion was successful (not all NaT)
             if df[c].notna().any():
                 df = df.sort_values(c)
                 break
             else:
-                # Restore original values if conversion failed
                 df[c] = original_values
         except Exception:
             continue
@@ -108,17 +125,13 @@ def prepare_ml_data(df):
     dt_col = get_datetime_column(df_ml)
     if dt_col:
         try:
-            # Ensure the column is properly datetime
             df_ml[dt_col] = pd.to_datetime(df_ml[dt_col], errors="coerce")
-            
-            # Only create time features if we have valid datetime values
             valid_dates = df_ml[dt_col].notna()
             if valid_dates.any():
                 df_ml["Hour"] = df_ml[dt_col].dt.hour
                 df_ml["Weekday"] = df_ml[dt_col].dt.weekday
                 df_ml["Month"] = df_ml[dt_col].dt.month
         except Exception as e:
-            # If datetime conversion fails, skip time features
             st.warning(f"Could not process datetime column '{dt_col}': {str(e)}")
     
     return df_ml
@@ -126,19 +139,19 @@ def prepare_ml_data(df):
 def train_models(df_ml):
     """Trains Random Forest and XGBoost models"""
     
-    # Define features
+    # Define features based on available columns
     features = []
-    if "Occupancy" in df_ml.columns:
+    if "Occupancy" in df_ml.columns and df_ml["Occupancy"].notna().any():
         features.append("Occupancy")
-    if "RadiatorTemp" in df_ml.columns:
+    if "RadiatorTemp" in df_ml.columns and df_ml["RadiatorTemp"].notna().any():
         features.append("RadiatorTemp")
-    if "CO2" in df_ml.columns:
+    if "CO2" in df_ml.columns and df_ml["CO2"].notna().any():
         features.append("CO2")
-    if "ExternalTemp" in df_ml.columns:
+    if "ExternalTemp" in df_ml.columns and df_ml["ExternalTemp"].notna().any():
         features.append("ExternalTemp")
-    if "Hour" in df_ml.columns:
+    if "Hour" in df_ml.columns and df_ml["Hour"].notna().any():
         features.append("Hour")
-    if "Weekday" in df_ml.columns:
+    if "Weekday" in df_ml.columns and df_ml["Weekday"].notna().any():
         features.append("Weekday")
     
     if "WallTemp" not in df_ml.columns or len(features) < 2:
@@ -173,7 +186,7 @@ def train_models(df_ml):
         except ImportError:
             xgb_model = None
         
-        # Evaluate
+        # Evaluate models
         rf_pred = rf_model.predict(X_test)
         rf_mae = mean_absolute_error(y_test, rf_pred)
         rf_r2 = r2_score(y_test, rf_pred)
@@ -200,14 +213,49 @@ def train_models(df_ml):
 # =====================
 # ---- MAIN LAYOUT ----
 # =====================
-st.title("🏠 Digital Twin Prototype")
-st.markdown("**Sensor Dashboard + AI Prediction System**")
 
-# Load data
+# Header with University Branding
+st.markdown('<div class="main-header">🏛️ Bologna University - Aula 0.4 (Digital Twin Prototype)</div>', unsafe_allow_html=True)
+st.markdown("---")
+
+# Sidebar
+with st.sidebar:
+    st.markdown("### 📂 Upload Data (CSV/XLSX)")
+    uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
+    
+    if uploaded:
+        st.success("✅ File uploaded successfully")
+
+# Main content
+if uploaded is None:
+    st.info("👈 Please upload a data file to get started")
+    st.stop()
+
+# Load and process data
 df = load_dataframe(uploaded)
 if df.empty:
-    st.info("👈 Please upload a data file (CSV/XLSX) from the sidebar")
+    st.error("❌ Could not read the uploaded file")
     st.stop()
+
+# =====================
+# ---- SENSOR VISUALIZATION ----
+# =====================
+st.markdown('<div class="sub-header">📊 Sensor Visualization</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.markdown("**Select Parameter to Display:**")
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if num_cols:
+        param = st.selectbox("", options=num_cols, label_visibility="collapsed")
+    else:
+        st.warning("No numerical columns found")
+        st.stop()
+
+with col2:
+    st.markdown("**Time Scale:**")
+    agg = st.selectbox("", ["Raw", "Hourly", "Daily", "Monthly"], label_visibility="collapsed")
 
 # Apply resampling
 DT = get_datetime_column(df)
@@ -216,103 +264,93 @@ if DT and agg != "Raw":
     rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[agg]
     base = resample_df(df, DT, rule)
 
-# Data preview
-with st.expander("📊 Data Preview", expanded=False):
-    st.dataframe(base.head())
-    st.caption(f"Rows: {len(base):,} | Columns: {len(base.columns):,}")
-
-# =====================
-# ---- CHARTS --------
-# =====================
-st.subheader("📈 Sensor Visualization")
-
-num_cols = base.select_dtypes(include=[np.number]).columns.tolist()
-if not num_cols:
-    st.warning("No numerical columns found.")
-else:
-    # Parameter selection
-    param = st.selectbox("📊 Select parameter to display:", options=num_cols, index=0)
+# Date range filter
+if DT and DT in base.columns:
+    st.markdown("**📅 Date Range:**")
+    base[DT] = pd.to_datetime(base[DT])
+    min_dt = base[DT].min()
+    max_dt = base[DT].max()
     
-    # Date filter
-    filtered = base
-    if DT and DT in base.columns:
-        base[DT] = pd.to_datetime(base[DT])
-        min_dt = base[DT].min()
-        max_dt = base[DT].max()
+    if pd.notna(min_dt) and pd.notna(max_dt):
+        min_date = min_dt.date()
+        max_date = max_dt.date()
         
-        if pd.notna(min_dt) and pd.notna(max_dt):
-            min_date = min_dt.date()
-            max_date = max_dt.date()
-            
-            start_date, end_date = st.slider(
-                "📅 Date range:",
-                value=(min_date, max_date),
-                min_value=min_date,
-                max_value=max_date,
-                format="DD/MM/YYYY"
-            )
-            
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            mask = (base[DT] >= start_dt) & (base[DT] <= end_dt)
-            filtered = base.loc[mask]
-    
-    if not filtered.empty:
-        # Chart
-        fig = px.line(
-            filtered,
-            x=DT if DT and DT in filtered.columns else filtered.index,
-            y=param,
-            title=f"{param} - Time Series",
-            labels={"x": "Time", "y": param}
+        start_date, end_date = st.slider(
+            "",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            format="DD/MM/YYYY",
+            label_visibility="collapsed"
         )
-        fig.update_layout(hovermode='x')
-        st.plotly_chart(fig, use_container_width=True)
         
-        # Statistics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("📊 Average", f"{filtered[param].mean():.2f}")
-        with col2:
-            st.metric("⬆️ Maximum", f"{filtered[param].max():.2f}")
-        with col3:
-            st.metric("⬇️ Minimum", f"{filtered[param].min():.2f}")
-        with col4:
-            st.metric("📈 Std Dev", f"{filtered[param].std():.2f}")
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        mask = (base[DT] >= start_dt) & (base[DT] <= end_dt)
+        filtered = base.loc[mask]
+    else:
+        filtered = base
+else:
+    filtered = base
+
+# Display chart
+if not filtered.empty and param:
+    fig = px.line(
+        filtered,
+        x=DT if DT and DT in filtered.columns else filtered.index,
+        y=param,
+        title=f"{param} - Time Series (Monthly)",
+        labels={"x": "Time", "y": param}
+    )
+    fig.update_layout(
+        height=400,
+        hovermode='x',
+        title_font_size=16
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Statistics row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Average", f"{filtered[param].mean():.2f}")
+    with col2:
+        st.metric("Max", f"{filtered[param].max():.2f}")
+    with col3:
+        st.metric("Min", f"{filtered[param].min():.2f}")
+    with col4:
+        st.metric("Std Dev", f"{filtered[param].std():.2f}")
+
+st.markdown("---")
 
 # =====================
-# ---- AI MODELS -----
+# ---- AI PREDICTION MODEL ----
 # =====================
-st.subheader("🤖 AI Prediction Models")
+st.markdown('<div class="sub-header">🤖 AI Prediction Model</div>', unsafe_allow_html=True)
 
 # Auto-prepare data for ML
 df_ml = prepare_ml_data(df)
 
-# Debug information
-with st.expander("🔍 Data Inspection", expanded=False):
-    st.write("**Original columns:**")
-    st.write(list(df.columns))
-    
-    st.write("**Generated ML features:**")
-    ml_features = ["WallTemp", "RadiatorTemp", "Occupancy", "CO2", "ExternalTemp", "Hour", "Weekday"]
-    available_ml_features = [f for f in ml_features if f in df_ml.columns]
-    st.write(available_ml_features)
-    
-    if available_ml_features:
-        st.write("**Sample data:**")
-        st.dataframe(df_ml[available_ml_features].head())
-    
-    datetime_col = get_datetime_column(df)
-    if datetime_col:
-        st.write(f"**Datetime column detected:** {datetime_col}")
-        st.write(f"**Sample datetime values:** {df[datetime_col].head().tolist()}")
-    else:
-        st.write("**No datetime column detected**")
-
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    if st.button("🎯 Train Models", use_container_width=True):
+    st.markdown("**🔍 Data Inspection**")
+    if st.button("Inspect Data", use_container_width=True):
+        with st.expander("Data Details", expanded=True):
+            st.write("**Original columns:**")
+            st.write(list(df.columns))
+            
+            ml_features = ["WallTemp", "RadiatorTemp", "Occupancy", "CO2", "ExternalTemp", "Hour", "Weekday"]
+            available_ml_features = [f for f in ml_features if f in df_ml.columns]
+            st.write("**Generated ML features:**")
+            st.write(available_ml_features)
+            
+            if available_ml_features:
+                st.write("**Sample data:**")
+                st.dataframe(df_ml[available_ml_features].head())
+
+with col2:
+    st.markdown("**🎯 Train Model**")
+    if st.button("Train Model", use_container_width=True):
         with st.spinner("🔄 Training models..."):
             rf_model, xgb_model, metrics, error = train_models(df_ml)
             
@@ -326,107 +364,78 @@ with col1:
                 st.session_state['features'] = metrics['features']
                 
                 st.success("✅ Models trained successfully!")
-                
-                # Show metrics
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.metric("🌲 RF R²", f"{metrics['rf_r2']:.3f}")
-                    st.metric("🌲 RF MAE", f"{metrics['rf_mae']:.2f}°C")
-                with col_b:
-                    if 'xgb_r2' in metrics:
-                        st.metric("🚀 XGB R²", f"{metrics['xgb_r2']:.3f}")
-                        st.metric("🚀 XGB MAE", f"{metrics['xgb_mae']:.2f}°C")
-                
-                st.info(f"📋 Features used: {', '.join(metrics['features'])}")
-                st.info(f"📊 Training data: {metrics['n_samples']} rows")
 
-with col2:
-    st.markdown("**📈 Model Information**")
-    if 'metrics' in st.session_state:
-        metrics = st.session_state['metrics']
-        st.write("✅ Models ready")
-        st.write(f"🎯 Target: Wall Temperature")
-        st.write(f"📊 Data: {metrics['n_samples']} rows")
-        st.write(f"🔧 Features: {len(metrics['features'])}")
-    else:
-        st.write("❌ Models not trained yet")
-        st.write("👆 Click the button above")
+# Model Information Box
+if 'metrics' in st.session_state:
+    metrics = st.session_state['metrics']
+    
+    st.markdown("**Model Information**")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.info(f"✅ Models Ready\n\nData: {metrics['n_samples']} rows")
+    with col_info2:
+        st.info(f"🔧 Features: {len(metrics['features'])}\n\nTarget: Wall Temperature")
 
 # =====================
-# ---- PREDICTION ----
+# ---- FEATURE SELECTION ----
 # =====================
-if 'rf_model' in st.session_state and 'features' in st.session_state:
-    st.subheader("🔮 Make Predictions")
+if 'features' in st.session_state:
+    st.markdown("**📋 Select Features ➽ Number of Features: " + str(len(st.session_state['features'])) + " ➕➖**")
     
     features = st.session_state['features']
-    rf_model = st.session_state['rf_model']
-    xgb_model = st.session_state.get('xgb_model')
-    
-    # Create input form
-    st.markdown("**📝 Enter values:**")
-    
-    cols = st.columns(min(len(features), 4))
+    feature_cols = st.columns(min(len(features), 3))
     inputs = {}
     
     for i, feature in enumerate(features):
-        with cols[i % len(cols)]:
-            if feature == "Occupancy":
-                inputs[feature] = st.number_input(f"👥 {feature}", value=20, min_value=0, max_value=100)
+        with feature_cols[i % len(feature_cols)]:
+            if feature == "CO2":
+                inputs[feature] = st.number_input(f"🌬️ {feature}", value=400, min_value=300, max_value=2000, key=f"input_{feature}")
+            elif feature == "Occupancy":
+                inputs[feature] = st.number_input(f"👥 {feature}", value=20, min_value=0, max_value=100, key=f"input_{feature}")
             elif feature == "RadiatorTemp":
-                inputs[feature] = st.number_input(f"🔥 {feature}", value=55.0, min_value=0.0, max_value=100.0)
-            elif feature == "CO2":
-                inputs[feature] = st.number_input(f"🌬️ {feature}", value=400, min_value=300, max_value=2000)
-            elif feature == "ExternalTemp":
-                inputs[feature] = st.number_input(f"🌡️ {feature}", value=15.0, min_value=-20.0, max_value=40.0)
+                inputs[feature] = st.number_input(f"🔥 RadiatorTemp", value=55.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
             elif feature == "Hour":
-                inputs[feature] = st.number_input(f"🕐 {feature}", value=12, min_value=0, max_value=23)
-            elif feature == "Weekday":
-                inputs[feature] = st.selectbox(f"📅 {feature}", 
-                                             options=[0,1,2,3,4,5,6], 
-                                             format_func=lambda x: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][x])
+                inputs[feature] = st.number_input(f"🕐 {feature}", value=12, min_value=0, max_value=23, key=f"input_{feature}")
+            elif feature == "ExternalTemp":
+                inputs[feature] = st.number_input(f"🌡️ Ext.Temp", value=15.0, min_value=-20.0, max_value=40.0, key=f"input_{feature}")
             else:
-                inputs[feature] = st.number_input(f"📊 {feature}", value=0.0)
+                inputs[feature] = st.number_input(f"📊 {feature}", value=0.0, key=f"input_{feature}")
+
+# =====================
+# ---- PREDICTION RESULTS ----
+# =====================
+if 'rf_model' in st.session_state and 'features' in st.session_state:
+    st.markdown("**🎯 Prediction Results**")
     
-    # Predict button
-    if st.button("🎯 Predict", use_container_width=True):
-        # Prepare input data
-        input_df = pd.DataFrame([inputs])
-        
+    if st.button("🔮 Predict", use_container_width=True):
         try:
-            # RF Prediction
+            rf_model = st.session_state['rf_model']
+            xgb_model = st.session_state.get('xgb_model')
+            
+            # Prepare input data
+            input_df = pd.DataFrame([inputs])
+            
+            # Make predictions
             rf_pred = rf_model.predict(input_df)[0]
-            
-            # XGB Prediction
-            xgb_pred = None
-            if xgb_model:
-                xgb_pred = xgb_model.predict(input_df)[0]
-            
-            # Show results
-            st.markdown("### 🎯 Prediction Results")
             
             col_rf, col_xgb = st.columns(2)
             
             with col_rf:
-                st.metric(
-                    label="🌲 Random Forest",
-                    value=f"{rf_pred:.1f}°C",
-                    delta=None
-                )
+                st.markdown("**Random Forest**")
+                st.markdown(f"### {rf_pred:.1f}°C")
+                if 'metrics' in st.session_state:
+                    st.caption(f"MAE ± {st.session_state['metrics']['rf_mae']:.2f}°C")
             
             with col_xgb:
-                if xgb_pred:
-                    st.metric(
-                        label="🚀 XGBoost", 
-                        value=f"{xgb_pred:.1f}°C",
-                        delta=f"{xgb_pred-rf_pred:.1f}°C"
-                    )
+                st.markdown("**XGBoost**")
+                if xgb_model:
+                    xgb_pred = xgb_model.predict(input_df)[0]
+                    st.markdown(f"### {xgb_pred:.1f}°C")
+                    if 'metrics' in st.session_state and 'xgb_mae' in st.session_state['metrics']:
+                        st.caption(f"MAE ± {st.session_state['metrics']['xgb_mae']:.2f}°C")
                 else:
-                    st.info("XGBoost not available")
-            
-            # Show input summary
-            with st.expander("📋 Input Summary"):
-                for feature, value in inputs.items():
-                    st.write(f"**{feature}:** {value}")
+                    st.markdown("### Not Available")
+                    st.caption("XGBoost not installed")
                     
         except Exception as e:
             st.error(f"Prediction error: {str(e)}")
@@ -436,4 +445,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("🏠 Digital Twin Prototype - Built with Streamlit")
+st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
