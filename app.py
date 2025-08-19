@@ -118,30 +118,27 @@ def categorize_sensors(df):
     """Categorizes sensors and calculates averages for each type - Fixed to handle 3 temperature types correctly"""
     sensor_categories = {}
     
-    # First, collect all temperature columns
+    # First, collect all temperature-related columns
     all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
     
-    # 1. Wall Temperature (ONLY wall temperature, exclude radiator and roof)
+    # 1. Wall Temperature - columns with "wall" and "Temperature" (not "Radiator Temperature")
     wall_temp_cols = [c for c in all_temp_cols 
                       if "wall" in c.lower() 
-                      and "radiator" not in c.lower() 
-                      and "roof" not in c.lower()]
+                      and "temperature" in c.lower()
+                      and "radiator temperature" not in c.lower()]
     if wall_temp_cols:
         sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 2. Radiator Temperature (ONLY radiator temperature, exclude wall and roof)
+    # 2. Radiator Temperature - columns with "Radiator Temperature" specifically
     rad_temp_cols = [c for c in all_temp_cols 
-                     if "radiator" in c.lower() 
-                     and "wall" not in c.lower() 
-                     and "roof" not in c.lower()]
+                     if "radiator temperature" in c.lower()]
     if rad_temp_cols:
         sensor_categories["Radiator Temperature"] = df[rad_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
-    # 3. Roof Temperature (ONLY roof temperature, exclude wall and radiator)
+    # 3. Roof Temperature - columns with "roof" and "Temperature"
     roof_temp_cols = [c for c in all_temp_cols 
                       if "roof" in c.lower() 
-                      and "wall" not in c.lower() 
-                      and "radiator" not in c.lower()]
+                      and "temperature" in c.lower()]
     if roof_temp_cols:
         sensor_categories["Roof Temperature"] = df[roof_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
     
@@ -412,25 +409,19 @@ if sensor_categories:
         if selected_param in sensor_categories:
             param_data = sensor_categories[selected_param]
             if param_data.notna().any():
-                # Get original column count for this parameter - UPDATED to include roof temperature
+                # Get original column count for this parameter - UPDATED for correct column matching
                 if selected_param == "Wall Temperature":
                     orig_cols = [c for c in df.columns 
                                 if "wall" in c.lower() 
                                 and "temperature" in c.lower() 
-                                and "radiator" not in c.lower() 
-                                and "roof" not in c.lower()]
+                                and "radiator temperature" not in c.lower()]
                 elif selected_param == "Radiator Temperature":
                     orig_cols = [c for c in df.columns 
-                                if "radiator" in c.lower() 
-                                and "temperature" in c.lower() 
-                                and "wall" not in c.lower() 
-                                and "roof" not in c.lower()]
+                                if "radiator temperature" in c.lower()]
                 elif selected_param == "Roof Temperature":
                     orig_cols = [c for c in df.columns 
                                 if "roof" in c.lower() 
-                                and "temperature" in c.lower() 
-                                and "wall" not in c.lower() 
-                                and "radiator" not in c.lower()]
+                                and "temperature" in c.lower()]
                 elif selected_param == "Temperature":
                     all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
                     orig_cols = [c for c in all_temp_cols 
