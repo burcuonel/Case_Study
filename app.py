@@ -466,3 +466,40 @@ if sensor_categories:
     
     # Display selected parameter chart
     if selected_param in sensor_categories:
+        param_data = sensor_categories[selected_param]
+        
+        if param_data.notna().any():
+            # Create single line chart
+            fig = px.line(
+                x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                y=param_data,
+                title=f"{selected_param} - Averaged Values ({agg})",
+                labels={"x": "Time", "y": selected_param}
+            )
+            
+            fig.update_layout(
+                height=400,
+                hovermode='x',
+                title_font_size=16,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show statistics for selected parameter
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Average", f"{param_data.mean():.2f}")
+            with col2:
+                st.metric("Max", f"{param_data.max():.2f}")
+            with col3:
+                st.metric("Min", f"{param_data.min():.2f}")
+            with col4:
+                st.metric("Std Dev", f"{param_data.std():.2f}")
+        else:
+            st.warning(f"No valid data available for {selected_param}")
+
+else:
+    st.warning("No sensor categories could be identified from the data")
+
+st.markdown("---")
