@@ -494,3 +494,196 @@ else:
     st.warning("No sensor categories could be identified from the data")
 
 st.markdown("---")
+
+# =====================
+# ---- AI PREDICTION MODEL ----
+# =====================
+st.markdown('<div class="sub-header">🤖 AI Prediction Model</div>', unsafe_allow_html=True)
+
+# Prepare ML data
+df_ml = prepare_ml_data(df)
+
+# Model configuration section
+st.markdown("**🎯 Model Configuration**")
+
+col_config1, col_config2 = st.columns(2)
+
+with col_config1:
+    st.markdown("**Select Target Variable:**")
+    available_targets = [col for col in df_ml.columns if df_ml[col].notna().any()]
+    if available_targets:
+        target_variable = st.selectbox("What do you want to predict?", available_targets, key="target_select")
+    else:
+        st.error("No valid target variables found")
+        st.stop()
+
+with col_config2:
+    st.markdown("**Select Input Features:**")
+    available_features = [col for col in df_ml.columns if col != target_variable and df_ml[col].notna().any()]
+    if available_features:
+        selected_features = st.multiselect(
+            "Choose input parameters:",
+            available_features,
+            default=available_features[:min(5, len(available_features))],
+            key="features_select"
+        )
+    else:
+        st.error("No valid features found")
+        st.stop()
+
+# Data inspection and training
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.markdown("**🔍 Data Inspection**")
+    if st.button("Inspect Data", use_container_width=True):
+        with st.expander("Data Details", expanded=True):
+            st.write("**Available parameters:**")
+            st.write(list(df_ml.columns))
+            
+            st.write(f"**Selected target:** {target_variable}")
+            st.write(f"**Selected features:** {selected_features}")
+            
+            if selected_features:
+                st.write("**Sample data:**")
+                display_cols = selected_features + [target_variable]
+                st.dataframe(df_ml[display_cols].head())
+                
+                st.write("**Data completeness:**")
+                completeness = df_ml[display_cols].notna().mean() * 100
+                for col in display_cols:
+                    st.write(f"- {col}: {completeness[col]:.1f}% complete")
+
+with col2:
+    st.markdown("**🎯 Train Model**")
+    if st.button("Train Custom Model", use_container_width=True):
+        if not selected_features:
+            st.error("Please select at least one feature")
+        else:
+            with st.spinner("🔄 Training models..."):
+                rf_model, xgb_model, metrics, error = train_custom_model(df_ml, target_variable, selected_features)
+                
+                if error:
+                    st.error(f"❌ Error: {error}")
+                else:
+                    # Store in session state
+                    st.session_state['rf_model'] = rf_model
+                    st.session_state['xgb_model'] = xgb_model
+                    st.session_state['metrics'] = metrics
+                    st.session_state['selected_features'] = selected_features
+                    st.session_state['target_variable'] = target_variable
+                    
+                    st.success("✅ Models trained successfully!")
+
+# Model Information
+if 'metrics' in st.session_state:
+    metrics = st.session_state['metrics']
+    
+    st.markdown("**📈 Model Information**")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.info(f"✅ Models Ready\n\nTarget: {metrics['target']}\nData: {metrics['n_samples']} rows")
+    with col_info2:
+        st.info(f"🔧 Features: {len(metrics['features'])}\n\nFeatures: {', '.join(metrics['features'][:3])}{'...' if len(metrics['features']) > 3 else ''}")
+
+# =====================
+# ---- FEATURE INPUT ----
+# =====================
+if 'selected_features' in st.session_state and 'target_variable' in st.session_state:
+    st.markdown(f"**📋 Input Features for {st.session_state['target_variable']} Prediction**")
+    st.markdown(f"**Number of Features: {len(st.session_state['selected_features'])} ➕➖**")
+    
+    features = st.session_state['selected_features']
+    
+    # Create input widgets based on feature type
+    feature_cols = st.columns(min(len(features), 3))
+    inputs = {}
+    
+    for i, feature in enumerate(features):
+        with feature_cols[i % len(feature_cols)]:
+            # Set appropriate defaults and ranges based on feature name
+            if "CO2" in feature:
+                inputs[feature] = st.number_input(f"🌬️ {feature}", value=400, min_value=300, max_value=2000, key=f"input_{feature}")
+            elif "Occupancy" in feature:
+                inputs[feature] = st.number_input(f"👥 {feature}", value=20, min_value=0, max_value=100, key=f"input_{feature}")
+            elif "Temperature" in feature:
+                if "Radiator" in feature:
+                    inputs[feature] = st.number_input(f"🔥 {feature}", value=55.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+                elif "Wall" in feature:
+                    inputs[feature] = st.number_input(f"🧱 {feature}", value=20.0, min_value=0.0, max_value=50.0, key=f"input_{feature}")
+                elif "Roof" in feature:
+                    inputs[feature] = st.number_input(f"🏠 {feature}", value=18.0, min_value=-20.0, max_value=50.0, key=f"input_{feature}")
+                else:
+                    inputs[feature] = st.number_input(f"🌡️ {feature}", value=22.0, min_value=0.0, max_value=50.0, key=f"input_{feature}")
+            elif "Humidity" in feature:
+                inputs[feature] = st.number_input(f"💧 {feature}", value=45.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+            elif "Hour" in feature:
+                inputs[feature] = st.number_input(f"🕒 {feature}", value=12, min_value=0, max_value=23, key=f"input_{feature}")
+            elif "Weekday" in feature:
+                inputs[feature] = st.selectbox(f"📅 {feature}", 
+                                             options=[0,1,2,3,4,5,6], 
+                                             format_func=lambda x: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][x],
+                                             key=f"input_{feature}")
+            elif "Light" in feature:
+                inputs[feature] = st.number_input(f"💡 {feature}", value=300, min_value=0, max_value=2000, key=f"input_{feature}")
+            elif "TVOC" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=100, min_value=0, max_value=1000, key=f"input_{feature}")
+            elif "HCHO" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=50, min_value=0, max_value=500, key=f"input_{feature}")
+            else:
+                inputs[feature] = st.number_input(f"📊 {feature}", value=0.0, key=f"input_{feature}")
+
+# =====================
+# ---- PREDICTION RESULTS ----
+# =====================
+if 'rf_model' in st.session_state and 'selected_features' in st.session_state:
+    st.markdown("**🎯 Prediction Results**")
+    
+    if st.button("🔮 Predict", use_container_width=True):
+        try:
+            rf_model = st.session_state['rf_model']
+            xgb_model = st.session_state.get('xgb_model')
+            target_var = st.session_state['target_variable']
+            
+            # Prepare input data
+            input_df = pd.DataFrame([inputs])
+            
+            # Make predictions
+            rf_pred = rf_model.predict(input_df)[0]
+            
+            col_rf, col_xgb = st.columns(2)
+            
+            with col_rf:
+                st.markdown("**Random Forest**")
+                # Add units based on target variable
+                unit = "°C" if "Temperature" in target_var else ""
+                unit = "%" if "Humidity" in target_var else unit
+                unit = "ppm" if "CO2" in target_var else unit
+                unit = "lux" if "Light" in target_var else unit
+                
+                st.markdown(f"### {rf_pred:.1f}{unit}")
+                if 'metrics' in st.session_state:
+                    st.caption(f"MAE ± {st.session_state['metrics']['rf_mae']:.2f}{unit}")
+            
+            with col_xgb:
+                st.markdown("**XGBoost**")
+                if xgb_model:
+                    xgb_pred = xgb_model.predict(input_df)[0]
+                    st.markdown(f"### {xgb_pred:.1f}{unit}")
+                    if 'metrics' in st.session_state and 'xgb_mae' in st.session_state['metrics']:
+                        st.caption(f"MAE ± {st.session_state['metrics']['xgb_mae']:.2f}{unit}")
+                else:
+                    st.markdown("### Not Available")
+                    st.caption("XGBoost not installed")
+                    
+        except Exception as e:
+            st.error(f"Prediction error: {str(e)}")
+
+else:
+    st.info("🎯 Configure and train the model first to make predictions.")
+
+# Footer
+st.markdown("---")
+st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
+
+st.markdown("---")
