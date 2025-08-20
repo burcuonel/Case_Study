@@ -9,6 +9,16 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 from typing import List, Dict, Optional
 
+from anthropic import Anthropic
+
+API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+if not API_KEY:
+    st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
+    st.stop()
+
+client = Anthropic(api_key=API_KEY)
+
+
 st.set_page_config(
     page_title="Bologna University - Digital Twin Prototype",
     layout="wide",
