@@ -738,7 +738,7 @@ with tab3:
             placeholder = st.empty()
             buf = ""
             with client.messages.stream(
-                model="claude-3-7-sonnet-2025-05-xx",
+                model="claude-3-7-sonnet-latest",
                 max_tokens=512,
                 messages=[{"role":"user","content":prompt}],
             ) as stream:
@@ -748,4 +748,12 @@ with tab3:
                         placeholder.markdown(buf)
 
             st.session_state.claude_messages.append({"role": "assistant", "content": buf})
+
+API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+if not API_KEY:
+    st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
+    st.stop()
+else:
+    st.caption("✅ Anthropic key bulundu (gizli).")
+
 
