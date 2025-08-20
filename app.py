@@ -8,15 +8,33 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 from typing import List, Dict, Optional
+from anthropic import Anthropic, APIStatusError
 
-from anthropic import Anthropic
-
-API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
 if not API_KEY:
     st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
     st.stop()
-
 client = Anthropic(api_key=API_KEY)
+
+st.caption("✅ Anthropic key detected.")
+
+# --- önce basit, non-streaming test ---
+if st.button("Test Claude API"):
+    try:
+        resp = client.messages.create(
+            model="claude-3-7-sonnet-latest",
+            max_tokens=10,
+            messages=[{"role":"user","content":"Hello"}],
+        )
+        st.success("Claude API OK ✅")
+        st.code(resp.content[0].text)
+    except APIStatusError as e:
+        st.error(f"Claude API error: {e.status_code}")
+        st.code(e.response.text)   # hata gövdesini gör
+    except Exception as e:
+        st.error(f"{type(e).__name__}: {e}")
+
+
 
 
 st.set_page_config(
