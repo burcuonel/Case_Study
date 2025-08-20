@@ -687,3 +687,55 @@ st.markdown("---")
 st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
 
 st.markdown("---")
+
+# Sekmeleri tanımla
+tab1, tab2, tab3 = st.tabs(["Visualization", "Prediction", "Claude Chat"])
+
+with tab1:
+    # Senin mevcut grafik kodların buraya
+    st.subheader("Sensor Visualizations")
+    # ... mevcut plot kodun
+
+with tab2:
+    # Senin prediction model kodların buraya
+    st.subheader("Prediction Models")
+    # ... mevcut RF/XGB kodun
+
+with tab3:
+    # Claude chat kodu buraya
+    st.subheader("Chat with Claude")
+
+    import os
+    from anthropic import Anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY")
+    client = Anthropic(api_key=api_key)
+
+    if "claude_messages" not in st.session_state:
+        st.session_state.claude_messages = []
+
+    for msg in st.session_state.claude_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    prompt = st.chat_input("Ask Claude about your dataset...")
+    if prompt:
+        st.session_state.claude_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            buf = ""
+            with client.messages.stream(
+                model="claude-3-7-sonnet-2025-05-xx",
+                max_tokens=512,
+                messages=[{"role":"user","content":prompt}],
+            ) as stream:
+                for event in stream:
+                    if event.type == "content.delta":
+                        buf += event.delta.get("text", "")
+                        placeholder.markdown(buf)
+
+            st.session_state.claude_messages.append({"role": "assistant", "content": buf})
+
