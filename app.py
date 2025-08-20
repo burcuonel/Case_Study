@@ -730,48 +730,62 @@ with tab2:
     # ... mevcut RF/XGB kodun
 
 with tab3:
-    # Claude chat kodu buraya
     st.subheader("Chat with Claude")
-
-    import os
-    from anthropic import Anthropic
-
-    api_key = os.getenv("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY")
-    client = Anthropic(api_key=api_key)
-
     if "claude_messages" not in st.session_state:
         st.session_state.claude_messages = []
 
-    for msg in st.session_state.claude_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # Geçmişi göster
+    for m in st.session_state.claude_messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
 
-    prompt = st.chat_input("Ask Claude about your dataset...")
+    # TAB çakışmalarını önlemek için key ver
+    prompt = st.chat_input("Ask Claude about your dataset…", key="claude_input")
+
+    # --- 0) Hızlı test butonu (non-streaming) ---
+    if st.button("Test Claude (non-stream)"):
+        try:
+            resp = client.messages.create(
+                model="claude-3-7-sonnet-latest",
+                max_tokens=200,
+                messages=[{"role": "user", "content": "Merhaba, kısa bir yanıt ver."}],
+            )
+            st.success("OK")
+            st.code(resp.content[0].text)
+        except Exception as e:
+            st.error(f"{type(e).__name__}: {e}")
+
     if prompt:
         st.session_state.claude_messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            buf = ""
-            with client.messages.stream(
-                model="claude-3-7-sonnet-latest",
-                max_tokens=512,
-                messages=[{"role":"user","content":prompt}],
-            ) as stream:
-                for event in stream:
-                    if event.type == "content.delta":
-                        buf += event.delta.get("text", "")
+        # --- 1) Güçlü streaming uygulaması ---
+        try:
+            with st.chat_message("assistant"):
+                placeholder = st.empty()
+                buf = ""
+
+                # Anthropıc 0.39+ için en stabil akış
+                with client.messages.stream(
+                    model="claude-3-7-sonnet-latest",
+                    max_tokens=800,
+                    messages=[{"role": "user", "content": prompt}],
+                ) as stream:
+                    # Metin parçalarını yüksek seviyeden oku
+                    for text in stream.text_stream:
+                        buf += text
                         placeholder.markdown(buf)
 
-            st.session_state.claude_messages.append({"role": "assistant", "content": buf})
+                    # Akış bittiğinde final mesajını al (gerekirse ileride kullanırsın)
+                    final = stream.get_final_message()
 
-API_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-if not API_KEY:
-    st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
-    st.stop()
-else:
-    st.caption("✅ Anthropic key bulundu (gizli).")
+                # Geçmişe ekle
+                st.session_state.claude_messages.append({"role": "assistant", "content": buf})
+
+        except Exception as e:
+            st.error(f"Claude API error: {type(e).__name__}")
+            st.code(str(e))
+
 
 
