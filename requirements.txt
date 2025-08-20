@@ -1,4 +1,6 @@
 streamlit
+anthropic
+python-dotenv
 pandas
 numpy
 plotly
