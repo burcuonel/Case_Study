@@ -718,7 +718,7 @@ if prompt:
     try:
         resp = client.messages.create(
             model="claude-3-7-sonnet-latest",
-            max_tokens=5000,
+            max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
         )
         answer = resp.content[0].text
