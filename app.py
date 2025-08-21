@@ -719,7 +719,7 @@ if prompt:
         resp = client.messages.create(
             model="claude-3-7-sonnet-latest",
             max_tokens=3000,
-            messages=[{"role": "user", "content": "Please give a detailed, step-by-step explanation with examples and sources."}],
+            messages=[{"role": "user", "content": prompt}],
         )
         answer = resp.content[0].text
     except APIStatusError as e:
