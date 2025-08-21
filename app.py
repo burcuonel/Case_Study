@@ -691,9 +691,9 @@ st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Str
 st.markdown("---")
 
 # Sekmeleri tanımla
-tab = st.tabs(["Visualization", "Prediction", "Claude Chat"])
+tab3 = st.tabs(["Visualization", "Prediction", "Claude Chat"])
 
-with tab:
+with tab3:
     st.subheader("Chat with Claude")
     if "claude_messages" not in st.session_state:
         st.session_state.claude_messages = []
