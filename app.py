@@ -692,7 +692,15 @@ st.markdown("---")
 
 # Sekmeleri tanımla
 tab3 = st.tabs(["Visualization", "Prediction", "Claude Chat"])
+with tab1:
+    # Senin mevcut grafik kodların buraya
+    st.subheader("Sensor Visualizations")
+    # ... mevcut plot kodun
 
+with tab2:
+    # Senin prediction model kodların buraya
+    st.subheader("Prediction Models")
+    # ... mevcut RF/XGB kodun
 with tab3:
     st.subheader("Chat with Claude")
     if "claude_messages" not in st.session_state:
@@ -750,6 +758,7 @@ with tab3:
         except Exception as e:
             st.error(f"Claude API error: {type(e).__name__}")
             st.code(str(e))
+
 
 
 
