@@ -392,12 +392,21 @@ st.markdown("---")
 # ---- AVERAGED SENSOR PARAMETERS ----
 # =====================
 st.markdown('<div class="sub-header">📈 Averaged Sensor Parameters</div>', unsafe_allow_html=True)
-st.markdown("**All sensor types with averaged values from multiple sensors**")
 
-# Time scale selection for averaged sensor parameters
-col_agg, col_param = st.columns([1, 2])
+col1, col2 = st.columns([2, 1])
 
-with col_agg:
+with col1:
+    st.markdown("**Select Averaged Parameter:**")
+    # Get categorized sensor data first
+    sensor_categories = categorize_sensors(df)
+    if sensor_categories:
+        available_params = list(sensor_categories.keys())
+        selected_param = st.selectbox("", options=available_params, key="averaged_param_select", label_visibility="collapsed")
+    else:
+        st.warning("No sensor categories could be identified from the data")
+        st.stop()
+
+with col2:
     st.markdown("**Time Scale:**")
     avg_agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], key="avg_agg_select", label_visibility="collapsed")
 
@@ -438,69 +447,10 @@ if DT and DT in avg_base.columns:
 else:
     avg_filtered = avg_base
 
-# Get categorized sensor data
+# Get categorized sensor data for filtered data
 sensor_categories = categorize_sensors(avg_filtered)
 
 if sensor_categories:
-    # Parameter selection for averaged sensors
-    col_param, col_stats = st.columns([2, 1])
-    
-    with col_param:
-        st.markdown("**Select Averaged Parameter:**")
-        available_params = list(sensor_categories.keys())
-        selected_param = st.selectbox("", options=available_params, key="averaged_param_select", label_visibility="collapsed")
-    
-    with col_stats:
-        st.markdown("**Parameter Info:**")
-        if selected_param in sensor_categories:
-            param_data = sensor_categories[selected_param]
-            if param_data.notna().any():
-                # Get original column count for this parameter - UPDATED for correct column matching
-                if selected_param == "Wall Temperature":
-                    orig_cols = [c for c in df.columns 
-                                if "wall" in c.lower() 
-                                and "temperature" in c.lower() 
-                                and "radiator temperature" not in c.lower()]
-                elif selected_param == "Radiator Temperature":
-                    orig_cols = [c for c in df.columns 
-                                if "radiator temperature" in c.lower()]
-                elif selected_param == "Roof Temperature":
-                    orig_cols = [c for c in df.columns 
-                                if "roof" in c.lower() 
-                                and "temperature" in c.lower()]
-                elif selected_param == "Temperature":
-                    all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
-                    orig_cols = [c for c in all_temp_cols 
-                                if "radiator" not in c.lower() 
-                                and "wall" not in c.lower()
-                                and "roof" not in c.lower()
-                                and not any(x in c.lower() for x in ["external", "outdoor", "outside"])]
-                elif "Humidity" in selected_param:
-                    orig_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
-                elif "CO2" in selected_param:
-                    orig_cols = [c for c in df.columns if "co2" in c.lower()]
-                elif "TVOC" in selected_param:
-                    orig_cols = [c for c in df.columns if "tvoc" in c.lower()]
-                elif "HCHO" in selected_param:
-                    orig_cols = [c for c in df.columns if "hcho" in c.lower()]
-                elif "Light" in selected_param:
-                    orig_cols = [c for c in df.columns if "light" in c.lower() or "lux" in c.lower()]
-                elif "Occupancy" in selected_param:
-                    orig_cols = [c for c in df.columns if "occupancy" in c.lower() and "%" not in c]
-                elif "External" in selected_param:
-                    orig_cols = [c for c in df.columns 
-                                if any(x in c.lower() for x in ["external", "outdoor", "outside"])
-                                and "temperature" in c.lower()
-                                and "wall" not in c.lower() 
-                                and "radiator" not in c.lower() 
-                                and "roof" not in c.lower()]
-                else:
-                    orig_cols = []
-                
-                st.info(f"📊 Averaged from {len(orig_cols)} sensors\n\nData points: {param_data.notna().sum()}")
-            else:
-                st.warning("No valid data")
-    
     # Display selected parameter chart
     if selected_param in sensor_categories:
         param_data = sensor_categories[selected_param]
@@ -796,4 +746,4 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
         # tek öğe silme
         if st.button("Delete this", key=del_key):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
-            st.rerun() 
+            st.rerun() "
