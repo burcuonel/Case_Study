@@ -754,9 +754,7 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
             st.rerun()
             
-st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
 
-st.markdown("---")
 
 
 
