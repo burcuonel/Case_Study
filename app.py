@@ -796,4 +796,4 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
         # tek öğe silme
         if st.button("Delete this", key=del_key):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
-            st.rerun() "
+            st.rerun() 
