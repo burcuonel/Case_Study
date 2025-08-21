@@ -686,10 +686,6 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
-
-st.markdown("---")
-
 # =========================
 # Claude Chat – minimal, temiz UI
 # =========================
@@ -757,7 +753,9 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
         if st.button("Delete this", key=del_key):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
             st.rerun()
+st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Streamlit")
 
+st.markdown("---")
 
 
 
