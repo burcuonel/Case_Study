@@ -690,74 +690,74 @@ st.caption("🏛️ Bologna University - Digital Twin Prototype - Built with Str
 
 st.markdown("---")
 
-# Sekmeleri tanımla
-tab3 = st.tabs(["Visualization", "Prediction", "Claude Chat"])
-with tab1:
-    # Senin mevcut grafik kodların buraya
-    st.subheader("Sensor Visualizations")
-    # ... mevcut plot kodun
+# =========================
+# Claude Chat – minimal, temiz UI
+# =========================
+import os, uuid, streamlit as st
+from anthropic import Anthropic, APIStatusError
 
-with tab2:
-    # Senin prediction model kodların buraya
-    st.subheader("Prediction Models")
-    # ... mevcut RF/XGB kodun
-with tab3:
-    st.subheader("Chat with Claude")
-    if "claude_messages" not in st.session_state:
-        st.session_state.claude_messages = []
+# --- API key ---
+API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
+if not API_KEY:
+    st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
+    st.stop()
+client = Anthropic(api_key=API_KEY)
 
-    # Geçmişi göster
-    for m in st.session_state.claude_messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+st.title("Claude Chat")
 
-    # TAB çakışmalarını önlemek için key ver
-    prompt = st.chat_input("Ask Claude about your dataset…", key="claude_input")
+# --- state init ---
+if "qa_list" not in st.session_state:
+    # her eleman: {"id": str, "q": "...", "a": "..."}
+    st.session_state.qa_list = []
 
-    # --- 0) Hızlı test butonu (non-streaming) ---
-    if st.button("Test Claude (non-stream)"):
-        try:
-            resp = client.messages.create(
-                model="claude-3-7-sonnet-latest",
-                max_tokens=200,
-                messages=[{"role": "user", "content": "Merhaba, kısa bir yanıt ver."}],
-            )
-            st.success("OK")
-            st.code(resp.content[0].text)
-        except Exception as e:
-            st.error(f"{type(e).__name__}: {e}")
+# --- toolbar ---
+col1, col2, col3 = st.columns([1,1,2])
+with col1:
+    keep_latest = st.toggle("Keep only latest", value=False, help="Yeni yanıt gelince eskileri otomatik temizle.")
+with col2:
+    if st.button("Clear all"):
+        st.session_state.qa_list.clear()
+        st.rerun()
 
-    if prompt:
-        st.session_state.claude_messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+st.divider()
 
-        # --- 1) Güçlü streaming uygulaması ---
-        try:
-            with st.chat_message("assistant"):
-                placeholder = st.empty()
-                buf = ""
+# --- input ---
+prompt = st.chat_input("Ask Claude…")
+if prompt:
+    # isteği gönder
+    try:
+        resp = client.messages.create(
+            model="claude-3-7-sonnet-latest",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = resp.content[0].text
+    except APIStatusError as e:
+        answer = f"API error {e.status_code}:\n\n{e.response.text}"
+    except Exception as e:
+        answer = f"{type(e).__name__}: {e}"
 
-                # Anthropıc 0.39+ için en stabil akış
-                with client.messages.stream(
-                    model="claude-3-7-sonnet-latest",
-                    max_tokens=800,
-                    messages=[{"role": "user", "content": prompt}],
-                ) as stream:
-                    # Metin parçalarını yüksek seviyeden oku
-                    for text in stream.text_stream:
-                        buf += text
-                        placeholder.markdown(buf)
+    # listeyi güncelle
+    if keep_latest:
+        st.session_state.qa_list = []  # sadece son yanıt kalsın
+    st.session_state.qa_list.append({"id": str(uuid.uuid4()), "q": prompt, "a": answer})
+    st.rerun()
 
-                    # Akış bittiğinde final mesajını al (gerekirse ileride kullanırsın)
-                    final = stream.get_final_message()
+# --- render (son soru en üstte) ---
+for i, item in enumerate(reversed(st.session_state.qa_list)):
+    # benzersiz anahtarlar
+    exp_key = f"exp_{item['id']}"
+    del_key = f"del_{item['id']}"
+    # son öğe açık, diğerleri kapalı
+    expanded_default = (i == 0)
 
-                # Geçmişe ekle
-                st.session_state.claude_messages.append({"role": "assistant", "content": buf})
+    with st.expander(f"Q: {item['q']}", expanded=expanded_default, icon="💬"):
+        st.markdown(item["a"])
+        # tek öğe silme
+        if st.button("Delete this", key=del_key):
+            st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
+            st.rerun()
 
-        except Exception as e:
-            st.error(f"Claude API error: {type(e).__name__}")
-            st.code(str(e))
 
 
 
