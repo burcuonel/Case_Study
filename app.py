@@ -321,7 +321,7 @@ with col1:
 
 with col2:
     st.markdown("**Time Scale:**")
-    agg = st.selectbox("", ["Raw", "Hourly", "Daily", "Monthly"], label_visibility="collapsed")
+    agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], label_visibility="collapsed")
 
 # Apply resampling
 DT = get_datetime_column(df)
@@ -394,8 +394,52 @@ st.markdown("---")
 st.markdown('<div class="sub-header">📈 Averaged Sensor Parameters</div>', unsafe_allow_html=True)
 st.markdown("**All sensor types with averaged values from multiple sensors**")
 
+# Time scale selection for averaged sensor parameters
+col_agg, col_param = st.columns([1, 2])
+
+with col_agg:
+    st.markdown("**Time Scale:**")
+    avg_agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], key="avg_agg_select", label_visibility="collapsed")
+
+# Apply resampling for averaged sensor parameters
+if DT and avg_agg != "Raw":
+    avg_rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[avg_agg]
+    avg_base = resample_df(df, DT, avg_rule)
+else:
+    avg_base = df.copy()
+
+# Date range filter for averaged sensor parameters
+if DT and DT in avg_base.columns:
+    st.markdown("**📅 Date Range:**")
+    avg_base[DT] = pd.to_datetime(avg_base[DT])
+    avg_min_dt = avg_base[DT].min()
+    avg_max_dt = avg_base[DT].max()
+    
+    if pd.notna(avg_min_dt) and pd.notna(avg_max_dt):
+        avg_min_date = avg_min_dt.date()
+        avg_max_date = avg_max_dt.date()
+        
+        avg_start_date, avg_end_date = st.slider(
+            "",
+            value=(avg_min_date, avg_max_date),
+            min_value=avg_min_date,
+            max_value=avg_max_date,
+            format="DD/MM/YYYY",
+            key="avg_date_range",
+            label_visibility="collapsed"
+        )
+        
+        avg_start_dt = pd.to_datetime(avg_start_date)
+        avg_end_dt = pd.to_datetime(avg_end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        avg_mask = (avg_base[DT] >= avg_start_dt) & (avg_base[DT] <= avg_end_dt)
+        avg_filtered = avg_base.loc[avg_mask]
+    else:
+        avg_filtered = avg_base
+else:
+    avg_filtered = avg_base
+
 # Get categorized sensor data
-sensor_categories = categorize_sensors(filtered)
+sensor_categories = categorize_sensors(avg_filtered)
 
 if sensor_categories:
     # Parameter selection for averaged sensors
@@ -464,9 +508,9 @@ if sensor_categories:
         if param_data.notna().any():
             # Create single line chart
             fig = px.line(
-                x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                x=avg_filtered[DT] if DT and DT in avg_filtered.columns else avg_filtered.index,
                 y=param_data,
-                title=f"{selected_param} - Averaged Values ({agg})",
+                title=f"{selected_param} - Averaged Values ({avg_agg})",
                 labels={"x": "Time", "y": selected_param}
             )
             
@@ -686,11 +730,11 @@ else:
 
 # Footer
 st.markdown("---")
+
 # =========================
-# Claude Chat – minimal, temiz UI
+# 🧠 Claude Chat — Enhanced UI
 # =========================
-import os, uuid, streamlit as st
-from anthropic import Anthropic, APIStatusError
+import uuid
 
 # --- API key ---
 API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
@@ -699,7 +743,7 @@ if not API_KEY:
     st.stop()
 client = Anthropic(api_key=API_KEY)
 
-st.title("Claude Chat")
+st.markdown('<div class="sub-header">🧠 Claude Chat</div>', unsafe_allow_html=True)
 
 # --- state init ---
 if "qa_list" not in st.session_state:
@@ -707,7 +751,7 @@ if "qa_list" not in st.session_state:
     st.session_state.qa_list = []
 
 # --- toolbar ---
-col1, col2, col3 = st.columns([1,1,2])
+col1, col2 = st.columns([1,1])
 with col1:
     keep_latest = st.toggle("Keep only latest", value=False, help="Yeni yanıt gelince eskileri otomatik temizle.")
 with col2:
@@ -752,10 +796,4 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
         # tek öğe silme
         if st.button("Delete this", key=del_key):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
-            st.rerun()
-            
-
-
-
-
-
+            st.rerun() "
