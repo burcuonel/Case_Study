@@ -1,406 +1,749 @@
-import streamlit as st
+import os
+import io
 import pandas as pd
 import numpy as np
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import io
-import re
+from datetime import datetime
+from typing import List, Dict, Optional
+from anthropic import Anthropic, APIStatusError
 
-# Page configuration
+
 st.set_page_config(
-    page_title="Bologna University - Aula 0.4",
-    page_icon="🏛️",
+    page_title="Bologna University - Digital Twin Prototype",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for Bologna University branding
+# Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
+        font-size: 2.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #1f4e79;
         display: flex;
         align-items: center;
-        padding: 1rem 0;
-        border-bottom: 2px solid #003c7f;
+        gap: 1rem;
     }
-    .logo {
+    .logo-placeholder {
         width: 60px;
         height: 60px;
-        margin-right: 20px;
-    }
-    .title-container {
-        flex-grow: 1;
-    }
-    .main-title {
-        color: #003c7f;
-        font-size: 2.5rem;
+        background: #1f4e79;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
         font-weight: bold;
-        margin: 0;
-    }
-    .subtitle {
-        color: #666;
         font-size: 1.2rem;
-        margin: 0;
     }
-    .university-info {
-        color: #888;
-        font-size: 0.9rem;
-        margin-top: 0.5rem;
+    .sub-header {
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin: 1rem 0;
+        color: #2c5282;
+    }
+    .feature-box {
+        background: #f7fafc;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #3182ce;
+        margin: 0.5rem 0;
+    }
+    .metric-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .parameter-group {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        border: 1px solid #e9ecef;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Header with logo
-st.markdown("""
+# =====================
+# ---- HELPER FUNCTIONS -----
+# =====================
+@st.cache_data(show_spinner=False)
+def load_dataframe(file) -> pd.DataFrame:
+    if file is None:
+        return pd.DataFrame()
+    name = getattr(file, "name", "uploaded").lower()
+    if name.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(file)
+    else:
+        df = pd.read_csv(file)
+    
+    # Try to find and convert datetime column
+    dt_candidates = [c for c in df.columns if any(x in str(c).lower() for x in ["datetime","time","timestamp","date","hour"])]
+    for c in dt_candidates:
+        try:
+            original_values = df[c].copy()
+            df[c] = pd.to_datetime(df[c], errors="coerce")
+            if df[c].notna().any():
+                df = df.sort_values(c)
+                break
+            else:
+                df[c] = original_values
+        except Exception:
+            continue
+    return df
+
+def get_datetime_column(df: pd.DataFrame) -> Optional[str]:
+    for c in df.columns:
+        try:
+            if np.issubdtype(df[c].dtype, np.datetime64):
+                return c
+        except Exception:
+            continue
+    return None
+
+@st.cache_data(show_spinner=False)
+def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFrame:
+    if dt_col is None:
+        return df
+    g = df.set_index(dt_col)
+    num_cols = g.select_dtypes(include=[np.number]).columns
+    out = g[num_cols].resample(rule).mean().reset_index()
+    return out
+
+def categorize_sensors(df):
+    """Categorizes sensors and calculates averages for each type - Fixed to handle 3 temperature types correctly"""
+    sensor_categories = {}
+    
+    # First, collect all temperature-related columns
+    all_temp_cols = [c for c in df.columns if "temperature" in c.lower()]
+    
+    # 1. Wall Temperature - columns with "wall" and "Temperature" (not "Radiator Temperature")
+    wall_temp_cols = [c for c in all_temp_cols 
+                      if "wall" in c.lower() 
+                      and "temperature" in c.lower()
+                      and "radiator temperature" not in c.lower()]
+    if wall_temp_cols:
+        sensor_categories["Wall Temperature"] = df[wall_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # 2. Radiator Temperature - columns with "Radiator Temperature" specifically
+    rad_temp_cols = [c for c in all_temp_cols 
+                     if "radiator temperature" in c.lower()]
+    if rad_temp_cols:
+        sensor_categories["Radiator Temperature"] = df[rad_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # 3. Roof Temperature - columns with "roof" and "Temperature"
+    roof_temp_cols = [c for c in all_temp_cols 
+                      if "roof" in c.lower() 
+                      and "temperature" in c.lower()]
+    if roof_temp_cols:
+        sensor_categories["Roof Temperature"] = df[roof_temp_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+
+    
+    # Relative Humidity
+    humidity_cols = [c for c in df.columns if "humidity" in c.lower() or "rh" in c.lower()]
+    if humidity_cols:
+        sensor_categories["Relative Humidity"] = df[humidity_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # CO2
+    co2_cols = [c for c in df.columns if "co2" in c.lower()]
+    if co2_cols:
+        sensor_categories["CO2"] = df[co2_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # TVOC
+    tvoc_cols = [c for c in df.columns if "tvoc" in c.lower()]
+    if tvoc_cols:
+        sensor_categories["TVOC"] = df[tvoc_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # HCHO
+    hcho_cols = [c for c in df.columns if "hcho" in c.lower()]
+    if hcho_cols:
+        sensor_categories["HCHO"] = df[hcho_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # Light
+    light_cols = [c for c in df.columns if "light" in c.lower() or "lux" in c.lower()]
+    if light_cols:
+        sensor_categories["Light"] = df[light_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    # Occupancy
+    occ_cols = [c for c in df.columns if "occupancy" in c.lower() and "%" not in c]
+    if occ_cols:
+        sensor_categories["Occupancy"] = df[occ_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    
+    return sensor_categories
+
+def prepare_ml_data(df):
+    """Prepares data for machine learning with all available features"""
+    sensor_data = categorize_sensors(df)
+    
+    # Add time features if datetime column exists
+    dt_col = get_datetime_column(df)
+    if dt_col:
+        try:
+            df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+            valid_dates = df[dt_col].notna()
+            if valid_dates.any():
+                sensor_data["Hour"] = df[dt_col].dt.hour
+                sensor_data["Weekday"] = df[dt_col].dt.weekday
+                sensor_data["Month"] = df[dt_col].dt.month
+        except Exception as e:
+            st.warning(f"Could not process datetime column '{dt_col}': {str(e)}")
+    
+    return pd.DataFrame(sensor_data)
+
+def train_custom_model(df_ml, target_var, selected_features):
+    """Trains models with user-selected target and features"""
+    
+    if target_var not in df_ml.columns:
+        return None, None, None, f"Target variable '{target_var}' not found"
+    
+    if len(selected_features) < 1:
+        return None, None, None, "At least 1 feature must be selected"
+    
+    # Check if selected features exist
+    available_features = [f for f in selected_features if f in df_ml.columns]
+    if len(available_features) < 1:
+        return None, None, None, "None of the selected features are available in the data"
+    
+    # Clean data
+    feature_cols = available_features + [target_var]
+    df_clean = df_ml[feature_cols].dropna()
+    
+    if len(df_clean) < 10:
+        return None, None, None, "Insufficient data rows (need at least 10)"
+    
+    X = df_clean[available_features]
+    y = df_clean[target_var]
+    
+    try:
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import mean_absolute_error, r2_score
+        
+        # Train-test split
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        # Random Forest
+        rf_model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+        rf_model.fit(X_train, y_train)
+        
+        # XGBoost
+        try:
+            import xgboost as xgb
+            xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42, n_jobs=-1)
+            xgb_model.fit(X_train, y_train)
+        except ImportError:
+            xgb_model = None
+        
+        # Evaluate models
+        rf_pred = rf_model.predict(X_test)
+        rf_mae = mean_absolute_error(y_test, rf_pred)
+        rf_r2 = r2_score(y_test, rf_pred)
+        
+        metrics = {
+            "rf_mae": rf_mae,
+            "rf_r2": rf_r2,
+            "features": available_features,
+            "target": target_var,
+            "n_samples": len(df_clean)
+        }
+        
+        if xgb_model:
+            xgb_pred = xgb_model.predict(X_test)
+            xgb_mae = mean_absolute_error(y_test, xgb_pred)
+            xgb_r2 = r2_score(y_test, xgb_pred)
+            metrics["xgb_mae"] = xgb_mae
+            metrics["xgb_r2"] = xgb_r2
+        
+        return rf_model, xgb_model, metrics, None
+        
+    except Exception as e:
+        return None, None, None, str(e)
+
+# =====================
+# ---- MAIN LAYOUT ----
+# =====================
+
+# Header with University Branding
+st.markdown('''
 <div class="main-header">
-    <div class="logo">🏛️</div>
-    <div class="title-container">
-        <h1 class="main-title">Bologna University - Aula 0.4</h1>
-        <p class="subtitle">(Digital Twin Prototype)</p>
-        <p class="university-info">🏛️ University of Bologna · Founded 1088 · The First University in the World</p>
+    <div class="logo-placeholder">UNIBO</div>
+    <div>
+        <div style="font-size: 2.5rem;">Bologna University - Aula 0.4</div>
+        <div style="font-size: 1.2rem; color: #666;">(Digital Twin Prototype)</div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
+st.caption("🏛️ University of Bologna - Founded 1088 - The First University in the World")
 st.markdown("---")
 
-# Session state for cleaned data
-if 'cleaned_data' not in st.session_state:
-    st.session_state.cleaned_data = None
-
-# Data Cleaning Section (NEW)
-with st.expander("🔧 **Data Cleaning Module** (Process raw data before visualization)", expanded=False):
-    st.info("Upload your raw dataset (dataset_2.xlsx) to clean and prepare it for visualization")
-    
-    raw_file = st.file_uploader(
-        "Upload raw Excel file for cleaning",
-        type=['xlsx'],
-        key="raw_cleaner",
-        help="Upload dataset_2.xlsx for automatic cleaning"
-    )
-    
-    if raw_file is not None:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.success(f"✅ Raw file uploaded: {raw_file.name}")
-        with col2:
-            if st.button("🚀 Clean Data", type="primary"):
-                with st.spinner("Cleaning data... Please wait"):
-                    try:
-                        # Read Excel
-                        df = pd.read_excel(raw_file)
-                        
-                        # Combine Date + Time
-                        df['Datetime'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Time'].astype(str), errors='coerce')
-                        df['Hour'] = df['Datetime'].dt.floor('h')
-                        
-                        # Remove Electrical Panel columns
-                        electrical_cols = [col for col in df.columns if 'electrical panel' in col.lower()]
-                        if electrical_cols:
-                            df = df.drop(columns=electrical_cols)
-                        
-                        # Remove January
-                        df = df[df['Datetime'].dt.month != 1]
-                        
-                        # Fix Rainfall Amount
-                        rain_cols = [c for c in df.columns if "rainfall amount" in str(c).lower()]
-                        if rain_cols:
-                            pattern_5digit = r"^\s*\d{5}([.,]\d+)?\s*$"
-                            for col in rain_cols:
-                                raw = df[col].astype(str).str.strip()
-                                mask_5 = raw.str.match(pattern_5digit)
-                                num = pd.to_numeric(raw.str.replace(",", ".", regex=False), errors="coerce")
-                                num.loc[mask_5] = num.loc[mask_5] / 1000.0
-                                df[col] = num.round(2)
-                        
-                        # Fix Temperature sensor errors
-                        temperature_columns_df = [col for col in df.columns if "Temperature" in col]
-                        for col in temperature_columns_df:
-                            df[col] = pd.to_numeric(df[col], errors="coerce")
-                            df.loc[df[col].astype(str).str.startswith("45"), col] = np.nan
-                        
-                        # Calculate hourly averages
-                        numeric_cols = df.select_dtypes(include='number').columns.difference(['Hour'])
-                        hourly_avg = df.groupby('Hour', as_index=True)[numeric_cols].mean()
-                        result = hourly_avg.reset_index()
-                        
-                        # Filter weekdays 8-19
-                        result['Weekday'] = result['Hour'].dt.weekday
-                        result['HourOfDay'] = result['Hour'].dt.hour
-                        result = result[(result['Weekday'] <= 4) & 
-                                       (result['HourOfDay'] >= 8) & 
-                                       (result['HourOfDay'] <= 19)]
-                        result = result.drop(columns=['Weekday', 'HourOfDay'])
-                        
-                        # Fix Temperature values
-                        temperature_columns = [col for col in result.columns if "Temperature" in col]
-                        for col in temperature_columns:
-                            result[col] = result[col].apply(lambda x: int(str(int(x))[:2]) if pd.notna(x) else np.nan)
-                        
-                        # Fix TVOC
-                        tvoc_columns = [col for col in result.columns if 'TVOC' in col]
-                        for col in tvoc_columns:
-                            result[col] = (result[col] / 100).round(2)
-                        
-                        # Fix Wind Speed
-                        wind_columns = [col for col in result.columns if 'Wind Speed' in col]
-                        for col in wind_columns:
-                            result[col] = result[col].apply(
-                                lambda x: round(float(str(int(x))[:1] + '.' + str(int(x))[1:2]), 2) if pd.notna(x) else np.nan
-                            )
-                        
-                        # Round other columns
-                        other_numeric_cols = [col for col in result.select_dtypes(include='number').columns
-                                             if "Temperature" not in col and "Wind Speed" not in col]
-                        for col in other_numeric_cols:
-                            result[col] = result[col].round(2)
-                        
-                        # Interpolation
-                        occupancy_columns = [col for col in result.columns if 'Occupancy' in col]
-                        numeric_cols_for_interp = result.select_dtypes(include='number').columns.difference(['Hour'])
-                        numeric_cols_for_interp = numeric_cols_for_interp.difference(occupancy_columns)
-                        
-                        for col in numeric_cols_for_interp:
-                            result[col] = result[col].interpolate(method='linear', limit_direction='both')
-                            result[col] = result[col].ffill().bfill()
-                        
-                        for col in occupancy_columns:
-                            result[col] = result[col].fillna(0)
-                        
-                        # Save to session state
-                        st.session_state.cleaned_data = result
-                        
-                        # Download button
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            result.to_excel(writer, index=False, sheet_name='Cleaned_Data')
-                        output.seek(0)
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Records", f"{len(result):,}")
-                        with col2:
-                            st.metric("Total Columns", len(result.columns))
-                        with col3:
-                            st.download_button(
-                                label="📥 Download Cleaned Data",
-                                data=output,
-                                file_name="cleaned_data.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                        
-                        st.success("✅ Data cleaning completed! You can now use this data for visualization below.")
-                        
-                    except Exception as e:
-                        st.error(f"Error during cleaning: {str(e)}")
-
-st.markdown("---")
-
-# Original Upload Data Section
+# Sidebar
 with st.sidebar:
-    st.markdown("## 📁 Upload Data (CSV/XLSX)")
+    st.markdown("### 📂 Upload Data (CSV/XLSX)")
+    uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
     
-    # Check if cleaned data exists
-    if st.session_state.cleaned_data is not None:
-        use_cleaned = st.checkbox("Use cleaned data from above", value=True)
-        if use_cleaned:
-            uploaded_file = "cleaned_data"
-            df = st.session_state.cleaned_data
-            st.success("Using cleaned data")
-        else:
-            uploaded_file = st.file_uploader(
-                "Drag and drop file here",
-                type=['csv', 'xlsx', 'xls'],
-                help="Limit 200MB per file • CSV, XLSX, XLS"
-            )
-    else:
-        uploaded_file = st.file_uploader(
-            "Drag and drop file here",
-            type=['csv', 'xlsx', 'xls'],
-            help="Limit 200MB per file • CSV, XLSX, XLS"
-        )
+    if uploaded:
+        st.success("✅ File uploaded successfully")
 
-# Main content area
-if uploaded_file is not None:
-    try:
-        # Load data if not using cleaned data
-        if uploaded_file != "cleaned_data":
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-        
-        # Ensure Hour column is datetime
-        if 'Hour' in df.columns:
-            df['Hour'] = pd.to_datetime(df['Hour'])
-        
-        # Display data info
-        st.info(f"📊 **Data loaded successfully!** Shape: {df.shape[0]} rows × {df.shape[1]} columns")
-        
-        # Get numeric and categorical columns
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-        datetime_cols = df.select_dtypes(include=['datetime64']).columns.tolist()
-        
-        # Main tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Time Series", "📊 Distribution", "🔥 Heatmap", "📉 Correlation", "📋 Data View"])
-        
-        with tab1:
-            st.subheader("Time Series Analysis")
-            
-            if 'Hour' in df.columns:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    selected_metrics = st.multiselect(
-                        "Select metrics to visualize:",
-                        numeric_cols,
-                        default=numeric_cols[:3] if len(numeric_cols) >= 3 else numeric_cols
-                    )
-                
-                with col2:
-                    chart_type = st.radio("Chart type:", ["Lines", "Scatter", "Area"])
-                
-                if selected_metrics:
-                    fig = go.Figure()
-                    
-                    for metric in selected_metrics:
-                        if chart_type == "Lines":
-                            fig.add_trace(go.Scatter(
-                                x=df['Hour'],
-                                y=df[metric],
-                                mode='lines',
-                                name=metric
-                            ))
-                        elif chart_type == "Scatter":
-                            fig.add_trace(go.Scatter(
-                                x=df['Hour'],
-                                y=df[metric],
-                                mode='markers',
-                                name=metric
-                            ))
-                        else:
-                            fig.add_trace(go.Scatter(
-                                x=df['Hour'],
-                                y=df[metric],
-                                mode='lines',
-                                fill='tozeroy',
-                                name=metric
-                            ))
-                    
-                    fig.update_layout(
-                        title="Sensor Measurements Over Time",
-                        xaxis_title="Time",
-                        yaxis_title="Value",
-                        hovermode='x unified',
-                        height=500
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Statistics
-                    st.subheader("📊 Quick Statistics")
-                    stats_df = df[selected_metrics].describe().round(2)
-                    st.dataframe(stats_df)
-        
-        with tab2:
-            st.subheader("Distribution Analysis")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                selected_col = st.selectbox("Select column:", numeric_cols)
-            with col2:
-                bins = st.slider("Number of bins:", 10, 50, 20)
-            
-            if selected_col:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig_hist = px.histogram(
-                        df,
-                        x=selected_col,
-                        nbins=bins,
-                        title=f"Distribution of {selected_col}"
-                    )
-                    st.plotly_chart(fig_hist, use_container_width=True)
-                
-                with col2:
-                    fig_box = px.box(
-                        df,
-                        y=selected_col,
-                        title=f"Box Plot of {selected_col}"
-                    )
-                    st.plotly_chart(fig_box, use_container_width=True)
-        
-        with tab3:
-            st.subheader("Correlation Heatmap")
-            
-            # Select columns for correlation
-            corr_cols = st.multiselect(
-                "Select columns for correlation analysis:",
-                numeric_cols,
-                default=numeric_cols[:10] if len(numeric_cols) >= 10 else numeric_cols
-            )
-            
-            if len(corr_cols) > 1:
-                corr_matrix = df[corr_cols].corr()
-                
-                fig = px.imshow(
-                    corr_matrix,
-                    text_auto=True,
-                    aspect="auto",
-                    title="Correlation Matrix",
-                    color_continuous_scale="RdBu_r",
-                    zmin=-1,
-                    zmax=1
-                )
-                fig.update_layout(height=600)
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with tab4:
-            st.subheader("Scatter Plot Analysis")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                x_var = st.selectbox("X axis:", numeric_cols, key="scatter_x")
-            with col2:
-                y_var = st.selectbox("Y axis:", numeric_cols, key="scatter_y")
-            with col3:
-                color_var = st.selectbox("Color by (optional):", [None] + categorical_cols)
-            
-            fig = px.scatter(
-                df,
-                x=x_var,
-                y=y_var,
-                color=color_var,
-                title=f"{y_var} vs {x_var}",
-                trendline="ols"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with tab5:
-            st.subheader("Data Overview")
-            
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                st.metric("Total Rows", f"{len(df):,}")
-                st.metric("Total Columns", len(df.columns))
-                st.metric("Numeric Columns", len(numeric_cols))
-                st.metric("Categorical Columns", len(categorical_cols))
-            
-            with col2:
-                st.dataframe(df.head(100), height=400)
+# Main content
+if uploaded is None:
+    st.info("👈 Please upload a data file to get started")
+    st.stop()
+
+# Load and process data
+df = load_dataframe(uploaded)
+if df.empty:
+    st.error("❌ Could not read the uploaded file")
+    st.stop()
+
+# =====================
+# ---- SENSOR VISUALIZATION ----
+# =====================
+st.markdown('<div class="sub-header">📊 Sensor Visualization</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.markdown("**Select Parameter to Display:**")
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if num_cols:
+        param = st.selectbox("", options=num_cols, label_visibility="collapsed")
+    else:
+        st.warning("No numerical columns found")
+        st.stop()
+
+with col2:
+    st.markdown("**Time Scale:**")
+    agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], label_visibility="collapsed")
+
+# Apply resampling
+DT = get_datetime_column(df)
+base = df.copy()
+if DT and agg != "Raw":
+    rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[agg]
+    base = resample_df(df, DT, rule)
+
+# Date range filter
+if DT and DT in base.columns:
+    st.markdown("**📅 Date Range:**")
+    base[DT] = pd.to_datetime(base[DT])
+    min_dt = base[DT].min()
+    max_dt = base[DT].max()
     
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
+    if pd.notna(min_dt) and pd.notna(max_dt):
+        min_date = min_dt.date()
+        max_date = max_dt.date()
+        
+        start_date, end_date = st.slider(
+            "",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            format="DD/MM/YYYY",
+            label_visibility="collapsed"
+        )
+        
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        mask = (base[DT] >= start_dt) & (base[DT] <= end_dt)
+        filtered = base.loc[mask]
+    else:
+        filtered = base
+else:
+    filtered = base
+
+# Display first chart
+if not filtered.empty and param:
+    fig = px.line(
+        filtered,
+        x=DT if DT and DT in filtered.columns else filtered.index,
+        y=param,
+        title=f"{param} - Time Series ({agg})",
+        labels={"x": "Time", "y": param}
+    )
+    fig.update_layout(
+        height=400,
+        hovermode='x',
+        title_font_size=16
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Statistics row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Average", f"{filtered[param].mean():.2f}")
+    with col2:
+        st.metric("Max", f"{filtered[param].max():.2f}")
+    with col3:
+        st.metric("Min", f"{filtered[param].min():.2f}")
+    with col4:
+        st.metric("Std Dev", f"{filtered[param].std():.2f}")
+
+st.markdown("---")
+
+# =====================
+# ---- AVERAGED SENSOR PARAMETERS ----
+# =====================
+st.markdown('<div class="sub-header">📈 Averaged Sensor Parameters</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.markdown("**Select Averaged Parameter:**")
+    # Get categorized sensor data first
+    sensor_categories = categorize_sensors(df)
+    if sensor_categories:
+        available_params = list(sensor_categories.keys())
+        selected_param = st.selectbox("", options=available_params, key="averaged_param_select", label_visibility="collapsed")
+    else:
+        st.warning("No sensor categories could be identified from the data")
+        st.stop()
+
+with col2:
+    st.markdown("**Time Scale:**")
+    avg_agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], key="avg_agg_select", label_visibility="collapsed")
+
+# Apply resampling for averaged sensor parameters
+if DT and avg_agg != "Raw":
+    avg_rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[avg_agg]
+    avg_base = resample_df(df, DT, avg_rule)
+else:
+    avg_base = df.copy()
+
+# Date range filter for averaged sensor parameters
+if DT and DT in avg_base.columns:
+    st.markdown("**📅 Date Range:**")
+    avg_base[DT] = pd.to_datetime(avg_base[DT])
+    avg_min_dt = avg_base[DT].min()
+    avg_max_dt = avg_base[DT].max()
+    
+    if pd.notna(avg_min_dt) and pd.notna(avg_max_dt):
+        avg_min_date = avg_min_dt.date()
+        avg_max_date = avg_max_dt.date()
+        
+        avg_start_date, avg_end_date = st.slider(
+            "",
+            value=(avg_min_date, avg_max_date),
+            min_value=avg_min_date,
+            max_value=avg_max_date,
+            format="DD/MM/YYYY",
+            key="avg_date_range",
+            label_visibility="collapsed"
+        )
+        
+        avg_start_dt = pd.to_datetime(avg_start_date)
+        avg_end_dt = pd.to_datetime(avg_end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        avg_mask = (avg_base[DT] >= avg_start_dt) & (avg_base[DT] <= avg_end_dt)
+        avg_filtered = avg_base.loc[avg_mask]
+    else:
+        avg_filtered = avg_base
+else:
+    avg_filtered = avg_base
+
+# Get categorized sensor data for filtered data
+sensor_categories = categorize_sensors(avg_filtered)
+
+if sensor_categories:
+    # Display selected parameter chart
+    if selected_param in sensor_categories:
+        param_data = sensor_categories[selected_param]
+        
+        if param_data.notna().any():
+            # Create single line chart
+            fig = px.line(
+                x=avg_filtered[DT] if DT and DT in avg_filtered.columns else avg_filtered.index,
+                y=param_data,
+                title=f"{selected_param} - Averaged Values ({avg_agg})",
+                labels={"x": "Time", "y": selected_param}
+            )
+            
+            fig.update_layout(
+                height=400,
+                hovermode='x',
+                title_font_size=16,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show statistics for selected parameter
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Average", f"{param_data.mean():.2f}")
+            with col2:
+                st.metric("Max", f"{param_data.max():.2f}")
+            with col3:
+                st.metric("Min", f"{param_data.min():.2f}")
+            with col4:
+                st.metric("Std Dev", f"{param_data.std():.2f}")
+        else:
+            st.warning(f"No valid data available for {selected_param}")
 
 else:
-    # Welcome message
-    st.markdown("""
-    <div style='text-align: center; padding: 50px; background-color: #f0f2f6; border-radius: 10px;'>
-        <h2>📊 Please upload a data file to get started</h2>
-        <p style='color: #666; font-size: 1.1rem;'>
-            Use the sidebar to upload your CSV or Excel file<br>
-            Or use the Data Cleaning Module above to process raw data first
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.warning("No sensor categories could be identified from the data")
+
+st.markdown("---")
+
+# =====================
+# ---- AI PREDICTION MODEL ----
+# =====================
+st.markdown('<div class="sub-header">🤖 AI Prediction Model</div>', unsafe_allow_html=True)
+
+# Prepare ML data
+df_ml = prepare_ml_data(df)
+
+# Model configuration section
+st.markdown("**🎯 Model Configuration**")
+
+col_config1, col_config2 = st.columns(2)
+
+with col_config1:
+    st.markdown("**Select Target Variable:**")
+    available_targets = [col for col in df_ml.columns if df_ml[col].notna().any()]
+    if available_targets:
+        target_variable = st.selectbox("What do you want to predict?", available_targets, key="target_select")
+    else:
+        st.error("No valid target variables found")
+        st.stop()
+
+with col_config2:
+    st.markdown("**Select Input Features:**")
+    available_features = [col for col in df_ml.columns if col != target_variable and df_ml[col].notna().any()]
+    if available_features:
+        selected_features = st.multiselect(
+            "Choose input parameters:",
+            available_features,
+            default=available_features[:min(5, len(available_features))],
+            key="features_select"
+        )
+    else:
+        st.error("No valid features found")
+        st.stop()
+
+# Data inspection and training
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.markdown("**🔍 Data Inspection**")
+    if st.button("Inspect Data", use_container_width=True):
+        with st.expander("Data Details", expanded=True):
+            st.write("**Available parameters:**")
+            st.write(list(df_ml.columns))
+            
+            st.write(f"**Selected target:** {target_variable}")
+            st.write(f"**Selected features:** {selected_features}")
+            
+            if selected_features:
+                st.write("**Sample data:**")
+                display_cols = selected_features + [target_variable]
+                st.dataframe(df_ml[display_cols].head())
+                
+                st.write("**Data completeness:**")
+                completeness = df_ml[display_cols].notna().mean() * 100
+                for col in display_cols:
+                    st.write(f"- {col}: {completeness[col]:.1f}% complete")
+
+with col2:
+    st.markdown("**🎯 Train Model**")
+    if st.button("Train Custom Model", use_container_width=True):
+        if not selected_features:
+            st.error("Please select at least one feature")
+        else:
+            with st.spinner("🔄 Training models..."):
+                rf_model, xgb_model, metrics, error = train_custom_model(df_ml, target_variable, selected_features)
+                
+                if error:
+                    st.error(f"❌ Error: {error}")
+                else:
+                    # Store in session state
+                    st.session_state['rf_model'] = rf_model
+                    st.session_state['xgb_model'] = xgb_model
+                    st.session_state['metrics'] = metrics
+                    st.session_state['selected_features'] = selected_features
+                    st.session_state['target_variable'] = target_variable
+                    
+                    st.success("✅ Models trained successfully!")
+
+# Model Information
+if 'metrics' in st.session_state:
+    metrics = st.session_state['metrics']
+    
+    st.markdown("**📈 Model Information**")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.info(f"✅ Models Ready\n\nTarget: {metrics['target']}\nData: {metrics['n_samples']} rows")
+    with col_info2:
+        st.info(f"🔧 Features: {len(metrics['features'])}\n\nFeatures: {', '.join(metrics['features'][:3])}{'...' if len(metrics['features']) > 3 else ''}")
+
+# =====================
+# ---- FEATURE INPUT ----
+# =====================
+if 'selected_features' in st.session_state and 'target_variable' in st.session_state:
+    st.markdown(f"**📋 Input Features for {st.session_state['target_variable']} Prediction**")
+    st.markdown(f"**Number of Features: {len(st.session_state['selected_features'])} ➕➖**")
+    
+    features = st.session_state['selected_features']
+    
+    # Create input widgets based on feature type
+    feature_cols = st.columns(min(len(features), 3))
+    inputs = {}
+    
+    for i, feature in enumerate(features):
+        with feature_cols[i % len(feature_cols)]:
+            # Set appropriate defaults and ranges based on feature name
+            if "CO2" in feature:
+                inputs[feature] = st.number_input(f"🌬️ {feature}", value=400, min_value=300, max_value=2000, key=f"input_{feature}")
+            elif "Occupancy" in feature:
+                inputs[feature] = st.number_input(f"👥 {feature}", value=20, min_value=0, max_value=100, key=f"input_{feature}")
+            elif "Temperature" in feature:
+                if "Radiator" in feature:
+                    inputs[feature] = st.number_input(f"🔥 {feature}", value=55.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+                elif "Wall" in feature:
+                    inputs[feature] = st.number_input(f"🧱 {feature}", value=20.0, min_value=0.0, max_value=50.0, key=f"input_{feature}")
+                elif "Roof" in feature:
+                    inputs[feature] = st.number_input(f"🏠 {feature}", value=18.0, min_value=-20.0, max_value=50.0, key=f"input_{feature}")
+                else:
+                    inputs[feature] = st.number_input(f"🌡️ {feature}", value=22.0, min_value=0.0, max_value=50.0, key=f"input_{feature}")
+            elif "Humidity" in feature:
+                inputs[feature] = st.number_input(f"💧 {feature}", value=45.0, min_value=0.0, max_value=100.0, key=f"input_{feature}")
+            elif "Hour" in feature:
+                inputs[feature] = st.number_input(f"🕒 {feature}", value=12, min_value=0, max_value=23, key=f"input_{feature}")
+            elif "Weekday" in feature:
+                inputs[feature] = st.selectbox(f"📅 {feature}", 
+                                             options=[0,1,2,3,4,5,6], 
+                                             format_func=lambda x: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][x],
+                                             key=f"input_{feature}")
+            elif "Light" in feature:
+                inputs[feature] = st.number_input(f"💡 {feature}", value=300, min_value=0, max_value=2000, key=f"input_{feature}")
+            elif "TVOC" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=100, min_value=0, max_value=1000, key=f"input_{feature}")
+            elif "HCHO" in feature:
+                inputs[feature] = st.number_input(f"🧪 {feature}", value=50, min_value=0, max_value=500, key=f"input_{feature}")
+            else:
+                inputs[feature] = st.number_input(f"📊 {feature}", value=0.0, key=f"input_{feature}")
+
+# =====================
+# ---- PREDICTION RESULTS ----
+# =====================
+if 'rf_model' in st.session_state and 'selected_features' in st.session_state:
+    st.markdown("**🎯 Prediction Results**")
+    
+    if st.button("🔮 Predict", use_container_width=True):
+        try:
+            rf_model = st.session_state['rf_model']
+            xgb_model = st.session_state.get('xgb_model')
+            target_var = st.session_state['target_variable']
+            
+            # Prepare input data
+            input_df = pd.DataFrame([inputs])
+            
+            # Make predictions
+            rf_pred = rf_model.predict(input_df)[0]
+            
+            col_rf, col_xgb = st.columns(2)
+            
+            with col_rf:
+                st.markdown("**Random Forest**")
+                # Add units based on target variable
+                unit = "°C" if "Temperature" in target_var else ""
+                unit = "%" if "Humidity" in target_var else unit
+                unit = "ppm" if "CO2" in target_var else unit
+                unit = "lux" if "Light" in target_var else unit
+                
+                st.markdown(f"### {rf_pred:.1f}{unit}")
+                if 'metrics' in st.session_state:
+                    st.caption(f"MAE ± {st.session_state['metrics']['rf_mae']:.2f}{unit}")
+            
+            with col_xgb:
+                st.markdown("**XGBoost**")
+                if xgb_model:
+                    xgb_pred = xgb_model.predict(input_df)[0]
+                    st.markdown(f"### {xgb_pred:.1f}{unit}")
+                    if 'metrics' in st.session_state and 'xgb_mae' in st.session_state['metrics']:
+                        st.caption(f"MAE ± {st.session_state['metrics']['xgb_mae']:.2f}{unit}")
+                else:
+                    st.markdown("### Not Available")
+                    st.caption("XGBoost not installed")
+                    
+        except Exception as e:
+            st.error(f"Prediction error: {str(e)}")
+
+else:
+    st.info("🎯 Configure and train the model first to make predictions.")
+
+# Footer
+st.markdown("---")
+
+# =========================
+# 🧠 Claude Chat — Enhanced UI
+# =========================
+import uuid
+
+# --- API key ---
+API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
+if not API_KEY:
+    st.error("ANTHROPIC_API_KEY is missing in Settings → Secrets.")
+    st.stop()
+client = Anthropic(api_key=API_KEY)
+
+st.markdown('<div class="sub-header">🧠 Claude Chat</div>', unsafe_allow_html=True)
+
+# --- state init ---
+if "qa_list" not in st.session_state:
+    # her eleman: {"id": str, "q": "...", "a": "..."}
+    st.session_state.qa_list = []
+
+# --- toolbar ---
+col1, col2 = st.columns([1,1])
+with col1:
+    keep_latest = st.toggle("Keep only latest", value=False, help="Yeni yanıt gelince eskileri otomatik temizle.")
+with col2:
+    if st.button("Clear all"):
+        st.session_state.qa_list.clear()
+        st.rerun()
+
+st.divider()
+
+# --- input ---
+prompt = st.chat_input("Ask Claude…")
+if prompt:
+    # isteği gönder
+    try:
+        resp = client.messages.create(
+            model="claude-3-7-sonnet-latest",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = resp.content[0].text
+    except APIStatusError as e:
+        answer = f"API error {e.status_code}:\n\n{e.response.text}"
+    except Exception as e:
+        answer = f"{type(e).__name__}: {e}"
+
+    # listeyi güncelle
+    if keep_latest:
+        st.session_state.qa_list = []  # sadece son yanıt kalsın
+    st.session_state.qa_list.append({"id": str(uuid.uuid4()), "q": prompt, "a": answer})
+    st.rerun()
+
+# --- render (son soru en üstte) ---
+for i, item in enumerate(reversed(st.session_state.qa_list)):
+    # benzersiz anahtarlar
+    exp_key = f"exp_{item['id']}"
+    del_key = f"del_{item['id']}"
+    # son öğe açık, diğerleri kapalı
+    expanded_default = (i == 0)
+
+    with st.expander(f"Q: {item['q']}", expanded=expanded_default, icon="💬"):
+        st.markdown(item["a"])
+        # tek öğe silme
+        if st.button("Delete this", key=del_key):
+            st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
+            st.rerun() 
