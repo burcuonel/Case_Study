@@ -166,7 +166,7 @@ def load_dataframe(file) -> pd.DataFrame:
         # 10. Temperature kolonlarında sadece ilk 2 rakam
         temperature_columns = [col for col in result.columns if "Temperature" in col]
         for col in temperature_columns:
-            result[col] = result[col].apply(lambda x: int(str(int(x))[:2]) if pd.notna(x) and x != 0 else np.nan)
+            result[col] = result[col].apply(lambda x: int(str(int(x))[:2]) if pd.notna(x) and x != 0 and len(str(int(x))) >= 2 else x)
         
         # 11. TVOC kolonlarını 100'e böl
         tvoc_columns = [col for col in result.columns if 'TVOC' in col]
@@ -496,10 +496,19 @@ if not filtered.empty and param:
         )
         # Remove gaps and format x-axis to show only actual data points
         if DT and DT in filtered.columns:
+            # Format dates based on aggregation level
+            if agg == "Daily":
+                date_format = '%d %b'  # "15 Mar"
+            elif agg == "Weekly":
+                date_format = '%d %b'  # "15 Mar" 
+            else:  # Monthly
+                date_format = '%b %Y'  # "Mar 2025"
+                
             fig.update_xaxes(
                 type='category',
-                categoryorder='array',
-                categoryarray=filtered[DT].dt.strftime('%b %Y').tolist()
+                tickmode='array',
+                tickvals=list(range(len(filtered))),
+                ticktext=filtered[DT].dt.strftime(date_format).tolist()
             )
         fig.update_layout(
             height=400,
