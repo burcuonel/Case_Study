@@ -406,13 +406,14 @@ st.markdown('''
 <div class="main-header">
     <div class="logo-placeholder">UNIBO</div>
     <div>
-        <div style="font-size: 2.5rem;">Bologna University - Aula 0.4</div>
-        <div style="font-size: 1.2rem; color: #666;">(Digital Twin Prototype)</div>
+        <div style="font-size: 1.8rem; line-height: 1.2;">Leveraging Artificial Intelligence for Digital Twin Data Interaction:</div>
+        <div style="font-size: 1.6rem; color: #2c5282; line-height: 1.2;">A BIM-Based Framework for Building Renovations</div>
+        <div style="font-size: 1.1rem; color: #666; margin-top: 0.5rem;">Emine Burcu Önel - Building Engineering-Architecture</div>
     </div>
 </div>
 ''', unsafe_allow_html=True)
 
-st.caption("🏛️ University of Bologna - Founded 1088 - The First University in the World")
+st.caption("🏛️ Alma Mater Studiorum - Università di Bologna - Founded 1088 - The First University in the World")
 st.markdown("---")
 
 # Sidebar
