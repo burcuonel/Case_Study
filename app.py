@@ -239,8 +239,8 @@ def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFr
     num_cols = g.select_dtypes(include=[np.number]).columns
     out = g[num_cols].resample(rule).mean().reset_index()
     
-    # Remove weekends from resampled data
-    if rule in ['D', 'W', 'MS']:  # Daily, Weekly, Monthly
+    # Remove weekends only for Daily resampling
+    if rule == 'D':  # Only for Daily
         out['weekday'] = out[dt_col].dt.weekday
         out = out[out['weekday'] <= 4]  # Keep only Mon-Fri (0-4)
         out = out.drop(columns=['weekday'])
@@ -500,6 +500,14 @@ if not filtered.empty and param:
             title=f"{param[0]} - Time Series ({agg})",
             labels={"x": "Time", "y": param[0]}
         )
+        
+        # Add date information to hover
+        if DT and DT in filtered.columns:
+            fig.update_traces(
+                customdata=filtered[DT].dt.strftime('%Y-%m-%d %H:%M'),
+                hovertemplate=f"<b>{param[0]}</b><br>Date: %{{customdata}}<br>Value: %{{y}}<extra></extra>"
+            )
+        
         # Remove gaps and format x-axis to show only actual data points
         if DT and DT in filtered.columns:
             # Format dates based on aggregation level
@@ -521,7 +529,7 @@ if not filtered.empty and param:
             )
         fig.update_layout(
             height=400,
-            hovermode='x',
+            hovermode='x unified',
             title_font_size=16
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -552,7 +560,9 @@ if not filtered.empty and param:
                 y=filtered[p],
                 mode='lines',
                 name=p,
-                line=dict(color=colors[i % len(colors)])
+                line=dict(color=colors[i % len(colors)]),
+                customdata=filtered[DT].dt.strftime('%Y-%m-%d %H:%M') if DT and DT in filtered.columns else None,
+                hovertemplate=f"<b>{p}</b><br>Date: %{{customdata}}<br>Value: %{{y}}<extra></extra>" if DT and DT in filtered.columns else None
             ))
         
         # Format x-axis to show dates without gaps
@@ -685,6 +695,13 @@ if sensor_categories and selected_param:
                 labels={"x": "Time", "y": selected_param[0]}
             )
             
+            # Add date information to hover
+            if DT and DT in avg_filtered.columns:
+                fig.update_traces(
+                    customdata=avg_filtered[DT].dt.strftime('%Y-%m-%d %H:%M'),
+                    hovertemplate=f"<b>{selected_param[0]}</b><br>Date: %{{customdata}}<br>Value: %{{y}}<extra></extra>"
+                )
+            
             # Format x-axis to show dates without gaps
             if DT and DT in avg_filtered.columns:
                 # Format dates based on aggregation level
@@ -745,7 +762,9 @@ if sensor_categories and selected_param:
                         y=param_data,
                         mode='lines',
                         name=p,
-                        line=dict(color=colors[i % len(colors)])
+                        line=dict(color=colors[i % len(colors)]),
+                        customdata=avg_filtered[DT].dt.strftime('%Y-%m-%d %H:%M') if DT and DT in avg_filtered.columns else None,
+                        hovertemplate=f"<b>{p}</b><br>Date: %{{customdata}}<br>Value: %{{y}}<extra></extra>" if DT and DT in avg_filtered.columns else None
                     ))
         
         # Format x-axis to show dates without gaps
