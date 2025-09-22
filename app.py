@@ -74,38 +74,52 @@ st.markdown("""
 # ---- HELPER FUNCTIONS -----
 # =====================
 @st.cache_data(show_spinner=False)
-def load_dataframe(file) -> pd.DataFrame:
-    if file is None:
-        return pd.DataFrame()
-    name = getattr(file, "name", "uploaded").lower()
-    if name.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(file)
-    else:
-        df = pd.read_csv(file)
-    
-    # Try to find and convert datetime column
-    dt_candidates = [c for c in df.columns if any(x in str(c).lower() for x in ["datetime","time","timestamp","date","hour"])]
-    for c in dt_candidates:
-        try:
-            original_values = df[c].copy()
-            df[c] = pd.to_datetime(df[c], errors="coerce")
-            if df[c].notna().any():
-                df = df.sort_values(c)
-                break
-            else:
-                df[c] = original_values
-        except Exception:
-            continue
-    return df
+def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFrame:
+    """
+    Resample ONLY within business hours (Mon–Fri, 08:00–19:00) and fill gaps on the time axis.
+    Keeps UI the same, just fixes the time grid + interpolation.
+    """
+    if dt_col is None or df.empty:
+        return df
 
-def get_datetime_column(df: pd.DataFrame) -> Optional[str]:
-    for c in df.columns:
-        try:
-            if np.issubdtype(df[c].dtype, np.datetime64):
-                return c
-        except Exception:
-            continue
-    return None
+    # 1) Time index
+    g = df.copy()
+    g = g.set_index(dt_col).sort_index()
+
+    # 2) Numeric-only for aggregation
+    num_cols = g.select_dtypes(include=[np.number]).columns
+
+    # 3) First aggregate to the requested rule (Hourly/Daily/Monthly)
+    #    (We will only apply business-hour logic for hourly level, which is where gaps matter)
+    out = g[num_cols].resample(rule).mean()
+
+    # If not hourly, just return as-is (no business-hour grid needed)
+    if rule != "H":
+        # Clean infinities, safe interpolate on time just in case
+        out = (out.replace([np.inf, -np.inf], np.nan)
+                  .interpolate(method="time", limit_direction="both"))
+        return out.reset_index()
+
+    # 4) Build a FULL hourly index between min/max
+    start = out.index.min().floor("H")
+    end   = out.index.max().ceil("H")
+    hourly_index = pd.date_range(start=start, end=end, freq="H")
+
+    # 5) Restrict that hourly grid to Mon–Fri & 08:00–19:00
+    # Weekday: Monday=0 ... Sunday=6  -> keep 0..4
+    weekday_mask = hourly_index.weekday <= 4
+    hours = hourly_index.hour
+    hour_mask = (hours >= 8) & (hours <= 19)
+    business_index = hourly_index[weekday_mask & hour_mask]
+
+    # 6) Reindex ONLY to that business grid, so gaps are created only inside your window
+    out = out.reindex(business_index)
+
+    # 7) Replace infinities, then time-based interpolation across business hours
+    out = (out.replace([np.inf, -np.inf], np.nan)
+              .interpolate(method="time", limit_direction="both"))
+
+    return out.reset_index().rename(columns={"index": dt_col})
 
 @st.cache_data(show_spinner=False)
 def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFrame:
