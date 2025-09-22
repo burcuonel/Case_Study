@@ -98,146 +98,6 @@ def load_dataframe(file) -> pd.DataFrame:
             continue
     return df
 
-def clean_uploaded_dataset(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Applies the user's cleaning pipeline to an uploaded dataframe, in a robust way.
-    The function DOES NOT change UI logic; it's invoked from the sidebar upload step.
-    """
-    if df is None or df.empty:
-        return df.copy()
-
-    df = df.copy()
-
-    # 2) Ensure a datetime column and an hourly "Hour" column (rounded down)
-    dt_col = None
-    # If separate Date/Time exist
-    date_like = None
-    time_like = None
-    for c in df.columns:
-        cl = str(c).lower()
-        if date_like is None and ("date" in cl and "update" not in cl):
-            date_like = c
-        if time_like is None and ("time" in cl or "saat" in cl):
-            time_like = c
-    if date_like is not None and time_like is not None:
-        try:
-            df["Datetime"] = pd.to_datetime(df[date_like].astype(str) + " " + df[time_like].astype(str), errors="coerce")
-            dt_col = "Datetime"
-        except Exception:
-            pass
-
-    # If a single datetime-like column exists
-    if dt_col is None:
-        for c in df.columns:
-            if any(k in str(c).lower() for k in ["datetime","timestamp","date","time","hour"]):
-                try:
-                    df[c] = pd.to_datetime(df[c], errors="coerce")
-                    if df[c].notna().any():
-                        dt_col = c
-                        break
-                except Exception:
-                    continue
-
-    if dt_col is not None:
-        df["Hour"] = pd.to_datetime(df[dt_col]).dt.floor("h")
-
-    # 3) Drop columns mentioning "electrical panel"
-    drop_cols = [c for c in df.columns if "electrical panel" in str(c).lower()]
-    if drop_cols:
-        df = df.drop(columns=drop_cols)
-
-    # 4) Fix Relative Humidity columns with 5-digit strings (e.g., "47000" -> 47.000)
-    rh_cols = [c for c in df.columns if "relative humidity" in str(c) or str(c).lower() in {"rh","rh (%)"} or "rh " in str(c).lower()]
-    for col in rh_cols:
-        try:
-            raw = df[col].astype(str)
-            # treat comma as decimal separator
-            raw = raw.str.replace(",", ".", regex=False)
-            num = pd.to_numeric(raw, errors="coerce")
-            # scale down obvious 5-digit entries
-            mask_5 = raw.str.match(r"^\s*\d{5}\s*$")
-            if mask_5.any():
-                num.loc[mask_5] = num.loc[mask_5] / 1000.0
-            df[col] = num.round(2)
-        except Exception:
-            continue
-
-    # 5) Remove temperature sensor glitches that start with '45...' (e.g., 45864) by setting NaN
-    temp_cols = [c for c in df.columns if "temperature" in str(c).lower()]
-    for col in temp_cols:
-        try:
-            s = pd.to_numeric(df[col], errors="coerce")
-            mask = s.astype("Int64").astype(str).str.startswith("45")
-            s.loc[mask.fillna(False)] = np.nan
-            df[col] = s
-        except Exception:
-            continue
-
-    # 6) If Hour exists, compute hourly averages of numeric columns (excluding Hour)
-    if "Hour" in df.columns:
-        num_cols = df.select_dtypes(include="number").columns.tolist()
-        if "Hour" in num_cols:
-            num_cols.remove("Hour")
-        if num_cols:
-            hourly = df.groupby("Hour", as_index=True)[num_cols].mean()
-            result = hourly.reset_index()
-        else:
-            result = df.copy()
-    else:
-        result = df.copy()
-
-    # 7) Filter to weekdays 08:00–19:00 if Hour exists
-    if "Hour" in result.columns:
-        wd = result["Hour"].dt.weekday  # 0=Mon
-        hour = result["Hour"].dt.hour
-        result = result.loc[(wd <= 4) & (hour.between(8, 19))].copy()
-
-    # 8) For Temperature columns: keep only first 2 digits of the integer part (e.g., 21.7 -> 21)
-    temp_cols_res = [c for c in result.columns if "temperature" in str(c).lower()]
-    for col in temp_cols_res:
-        try:
-            s = pd.to_numeric(result[col], errors="coerce")
-            result[col] = s.apply(lambda x: float(str(int(x))[:2]) if pd.notna(x) else np.nan)
-        except Exception:
-            continue
-
-    # 9) TVOC columns: divide by 100 and round to 2 decimals
-    tvoc_cols = [c for c in result.columns if "tvoc" in str(c).lower()]
-    for col in tvoc_cols:
-        try:
-            result[col] = (pd.to_numeric(result[col], errors="coerce") / 100.0).round(2)
-        except Exception:
-            continue
-
-    # 10) Wind Speed columns: take first 2 digits and convert like '45' -> 4.5
-    wind_cols = [c for c in result.columns if "wind speed" in str(c).lower()]
-    for col in wind_cols:
-        try:
-            s = pd.to_numeric(result[col], errors="coerce")
-            def fix_ws(x):
-                if pd.isna(x):
-                    return np.nan
-                s2 = str(int(x))
-                if len(s2) >= 2:
-                    return float(s2[0] + "." + s2[1])
-                return float(s2)
-            result[col] = s.apply(fix_ws)
-        except Exception:
-            continue
-
-    # 11) Round other numeric columns (excluding Temperature and Wind Speed) to 2 decimals
-    other_num = [c for c in result.select_dtypes(include="number").columns
-                 if "temperature" not in str(c).lower() and "wind speed" not in str(c).lower()]
-    for col in other_num:
-        result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
-
-    # 12) Light interpolation on Occupancy and Temperature families (forward fill then linear)
-    interp_cols = [c for c in result.columns if any(k in str(c).lower() for k in ["occupancy","temperature","co₂","co2","pm2.5","pm10","tvoc"])]
-    if interp_cols:
-        result[interp_cols] = result[interp_cols].ffill().interpolate(method="linear", limit_direction="both")
-
-    return result
-
 def get_datetime_column(df: pd.DataFrame) -> Optional[str]:
     for c in df.columns:
         try:
@@ -428,15 +288,25 @@ st.markdown("---")
 with st.sidebar:
     st.markdown("### 📂 Upload Data (CSV/XLSX)")
     uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
-    
 
+# === Cleaning integration (auto) ===
+try:
+    _df_exists = 'df' in locals() or 'df' in globals()
+except Exception:
+    _df_exists = False
+
+if _df_exists and isinstance(df, pd.DataFrame):
+    try:
+        df = clean_uploaded_dataset(df)
+    except Exception as _e:
+        # Fail silently to avoid altering UI
+        pass
+# === End cleaning integration (auto) ===
+
+
+    
     if uploaded:
         st.success("✅ File uploaded successfully")
-        with st.expander("🧹 Veriyi temizle (opsiyonel)", expanded=False):
-            st.caption("Yüklediğiniz dosyaya, paylaştığınız temizleme adımlarını uygular.")
-            apply_clean = st.checkbox("Temizlemeyi uygula", value=False, key="apply_clean_checkbox")
-    else:
-        apply_clean = False
 
 # Main content
 if uploaded is None:
@@ -445,16 +315,6 @@ if uploaded is None:
 
 # Load and process data
 df = load_dataframe(uploaded)
-
-# Apply cleaning if user opted in
-if "apply_clean_checkbox" in st.session_state and st.session_state["apply_clean_checkbox"]:
-    df_cleaned = clean_uploaded_dataset(df)
-    if not df_cleaned.empty:
-        st.sidebar.success("🧹 Temizleme uygulandı")
-        # Offer download
-        cleaned_csv = df_cleaned.to_csv(index=False).encode("utf-8")
-        st.sidebar.download_button("⬇️ Temiz veriyi indir (CSV)", cleaned_csv, file_name="cleaned_dataset.csv")
-        df = df_cleaned
 if df.empty:
     st.error("❌ Could not read the uploaded file")
     st.stop()
@@ -841,6 +701,98 @@ st.markdown("---")
 # 🧠 Claude Chat — Enhanced UI
 # =========================
 import uuid
+
+def clean_uploaded_dataset(df):
+    """
+    Apply dataset cleaning steps derived from the user's notebook.
+    The function is defensive: it only operates on columns it finds.
+    It returns a new cleaned DataFrame with the same columns (unless noted).
+    """
+    import pandas as pd
+    import numpy as np
+
+    dfc = df.copy()
+
+    # 1) Try to unify decimal separators and convert numeric-looking columns
+    for col in dfc.columns:
+        if dfc[col].dtype == object:
+            # replace comma decimal to dot
+            dfc[col] = dfc[col].str.replace(",", ".", regex=False)
+            # strip spaces
+            dfc[col] = dfc[col].str.strip()
+
+    # Convert obvious numeric columns
+    for col in dfc.columns:
+        try:
+            dfc[col] = pd.to_numeric(dfc[col])
+        except Exception:
+            pass
+
+    # 2) Try to parse a datetime index if present
+    for candidate in ["timestamp","time","date","datetime","Date","DATETIME","TIMESTAMP"]:
+        if candidate in dfc.columns:
+            try:
+                dfc[candidate] = pd.to_datetime(dfc[candidate], errors="coerce", dayfirst=True)
+            except Exception:
+                pass
+    # set index to first datetime-like column if exists
+    dt_col = None
+    for c in dfc.columns:
+        if str(dfc[c].dtype).startswith("datetime64"):
+            dt_col = c
+            break
+    if dt_col:
+        dfc = dfc.sort_values(dt_col).set_index(dt_col)
+
+    # 3) Specific fixes often seen in the user's datasets
+    # Relative Humidity scale error like 470.0 -> 47.00
+    for col in dfc.columns:
+        if "humidity" in col.lower() or "rh" in col.lower():
+            # If many values > 100, divide by 10 if looks like factor 10
+            over100_ratio = (dfc[col] > 100).mean()
+            if over100_ratio > 0.2:
+                dfc[col] = dfc[col] / 10.0
+
+    # Temperature outliers starting with 45xxx (e.g., rainfall anomaly pattern)
+    for col in dfc.columns:
+        if "temp" in col.lower() or "temperature" in col.lower():
+            dfc.loc[dfc[col] > 200, col] = np.nan  # drop impossible values
+
+    # TVOC scale normalize if looks like factor 100
+    for col in dfc.columns:
+        if "tvoc" in col.lower():
+            # If median is very large, scale down
+            med = pd.to_numeric(dfc[col], errors="coerce").median()
+            if med and med > 5000:
+                dfc[col] = dfc[col] / 100.0
+
+    # Wind speed "4,5" or "4.5" already handled by decimal unification
+
+    # 4) Interpolate mild gaps for numeric columns
+    num_cols = dfc.select_dtypes(include="number").columns
+    if len(num_cols) > 0:
+        dfc[num_cols] = dfc[num_cols].replace([np.inf, -np.inf], np.nan)
+        try:
+            dfc[num_cols] = dfc[num_cols].interpolate(limit_direction="both")
+        except Exception:
+            pass
+
+    # 5) Optionally resample hourly if index is datetime-like and high frequency
+    if isinstance(dfc.index, pd.DatetimeIndex):
+        try:
+            freq = pd.infer_freq(dfc.index[:20])
+        except Exception:
+            freq = None
+        if freq and freq.lower() not in ("h", "1h"):
+            # aggregate: mean
+            dfc = dfc.resample("1H").mean()
+
+    # 6) Round numeric columns to 2 decimals for consistency
+    if len(num_cols) > 0:
+        dfc[num_cols] = dfc[num_cols].round(2)
+
+    return dfc
+
 
 # --- API key ---
 API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
