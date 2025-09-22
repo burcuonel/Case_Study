@@ -488,17 +488,23 @@ if not filtered.empty and param:
     if len(param) == 1:
         # Single parameter - line chart
         fig = px.line(
-            filtered.reset_index(drop=True),
-            x=filtered.reset_index(drop=True).index,
+            filtered,
+            x=DT if DT and DT in filtered.columns else filtered.index,
             y=param[0],
             title=f"{param[0]} - Time Series ({agg})",
-            labels={"x": "Data Points", "y": param[0]}
+            labels={"x": "Time", "y": param[0]}
         )
+        # Remove gaps and format x-axis to show only actual data points
+        if DT and DT in filtered.columns:
+            fig.update_xaxes(
+                type='category',
+                categoryorder='array',
+                categoryarray=filtered[DT].dt.strftime('%b %Y').tolist()
+            )
         fig.update_layout(
             height=400,
             hovermode='x',
-            title_font_size=16,
-            xaxis_title="Data Points"
+            title_font_size=16
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -519,7 +525,8 @@ if not filtered.empty and param:
         
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
         
-        x_vals = list(range(len(filtered)))
+        # Use datetime values for x-axis
+        x_vals = filtered[DT] if DT and DT in filtered.columns else list(range(len(filtered)))
         
         for i, p in enumerate(param):
             fig.add_trace(go.Scatter(
@@ -530,9 +537,17 @@ if not filtered.empty and param:
                 line=dict(color=colors[i % len(colors)])
             ))
         
+        # Format x-axis to show month/year without gaps
+        if DT and DT in filtered.columns:
+            fig.update_xaxes(
+                type='category',
+                categoryorder='array',
+                categoryarray=filtered[DT].dt.strftime('%b %Y').tolist()
+            )
+        
         fig.update_layout(
             title=f"Multiple Parameters - Time Series ({agg})",
-            xaxis_title="Data Points",
+            xaxis_title="Time",
             yaxis_title="Values",
             height=400,
             hovermode='x',
@@ -634,18 +649,25 @@ if sensor_categories:
         if param_data.notna().any():
             # Create single line chart
             fig = px.line(
-                x=list(range(len(avg_filtered))),
+                x=avg_filtered[DT] if DT and DT in avg_filtered.columns else list(range(len(avg_filtered))),
                 y=param_data,
                 title=f"{selected_param} - Averaged Values ({avg_agg})",
-                labels={"x": "Data Points", "y": selected_param}
+                labels={"x": "Time", "y": selected_param}
             )
+            
+            # Format x-axis to show month/year without gaps
+            if DT and DT in avg_filtered.columns:
+                fig.update_xaxes(
+                    type='category',
+                    categoryorder='array',
+                    categoryarray=avg_filtered[DT].dt.strftime('%b %Y').tolist()
+                )
             
             fig.update_layout(
                 height=400,
                 hovermode='x',
                 title_font_size=16,
-                showlegend=False,
-                xaxis_title="Data Points"
+                showlegend=False
             )
             
             st.plotly_chart(fig, use_container_width=True)
