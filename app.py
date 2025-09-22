@@ -438,7 +438,7 @@ with col1:
     st.markdown("**Select Parameter to Display:**")
     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if num_cols:
-        param = st.selectbox("", options=num_cols, label_visibility="collapsed")
+        param = st.multiselect("", options=num_cols, default=[num_cols[0]] if num_cols else [], label_visibility="collapsed")
     else:
         st.warning("No numerical columns found")
         st.stop()
@@ -485,31 +485,81 @@ else:
 
 # Display first chart
 if not filtered.empty and param:
-    fig = px.line(
-        filtered,
-        x=DT if DT and DT in filtered.columns else filtered.index,
-        y=param,
-        title=f"{param} - Time Series ({agg})",
-        labels={"x": "Time", "y": param}
-    )
-    fig.update_traces(connectgaps=True)  # Connect gaps in the data
-    fig.update_layout(
-        height=400,
-        hovermode='x',
-        title_font_size=16
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if len(param) == 1:
+        # Single parameter - line chart
+        fig = px.line(
+            filtered,
+            x=DT if DT and DT in filtered.columns else filtered.index,
+            y=param[0],
+            title=f"{param[0]} - Time Series ({agg})",
+            labels={"x": "Time", "y": param[0]}
+        )
+        fig.update_layout(
+            height=400,
+            hovermode='x',
+            title_font_size=16,
+            xaxis=dict(type='category') if DT and DT in filtered.columns else {}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Statistics row for single parameter
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Average", f"{filtered[param[0]].mean():.2f}")
+        with col2:
+            st.metric("Max", f"{filtered[param[0]].max():.2f}")
+        with col3:
+            st.metric("Min", f"{filtered[param[0]].min():.2f}")
+        with col4:
+            st.metric("Std Dev", f"{filtered[param[0]].std():.2f}")
     
-    # Statistics row
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Average", f"{filtered[param].mean():.2f}")
-    with col2:
-        st.metric("Max", f"{filtered[param].max():.2f}")
-    with col3:
-        st.metric("Min", f"{filtered[param].min():.2f}")
-    with col4:
-        st.metric("Std Dev", f"{filtered[param].std():.2f}")
+    elif len(param) > 1:
+        # Multiple parameters - overlayed line chart
+        fig = go.Figure()
+        
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+        
+        for i, p in enumerate(param):
+            fig.add_trace(go.Scatter(
+                x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                y=filtered[p],
+                mode='lines',
+                name=p,
+                line=dict(color=colors[i % len(colors)])
+            ))
+        
+        fig.update_layout(
+            title=f"Multiple Parameters - Time Series ({agg})",
+            xaxis_title="Time",
+            yaxis_title="Values",
+            height=400,
+            hovermode='x',
+            title_font_size=16,
+            xaxis=dict(type='category') if DT and DT in filtered.columns else {},
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Statistics for multiple parameters
+        st.markdown("**📊 Statistics:**")
+        stats_data = []
+        for p in param:
+            stats_data.append({
+                "Parameter": p,
+                "Average": f"{filtered[p].mean():.2f}",
+                "Max": f"{filtered[p].max():.2f}",
+                "Min": f"{filtered[p].min():.2f}",
+                "Std Dev": f"{filtered[p].std():.2f}"
+            })
+        st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+else:
+    st.info("Please select at least one parameter to display")
 
 st.markdown("---")
 
@@ -589,12 +639,12 @@ if sensor_categories:
                 labels={"x": "Time", "y": selected_param}
             )
             
-            fig.update_traces(connectgaps=True)  # Connect gaps in the data
             fig.update_layout(
                 height=400,
                 hovermode='x',
                 title_font_size=16,
-                showlegend=False
+                showlegend=False,
+                xaxis=dict(type='category') if DT and DT in avg_filtered.columns else {}
             )
             
             st.plotly_chart(fig, use_container_width=True)
