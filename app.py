@@ -488,9 +488,8 @@ if not filtered.empty and param:
     if len(param) == 1:
         # Single parameter - line chart
         fig = px.line(
-            filtered,
-            x=DT if DT and DT in filtered.columns else filtered.index,
-            y=param[0],
+            x=list(range(len(filtered))),  # Use sequential index instead of datetime
+            y=filtered[param[0]],
             title=f"{param[0]} - Time Series ({agg})",
             labels={"x": "Time", "y": param[0]}
         )
@@ -499,24 +498,19 @@ if not filtered.empty and param:
             # Format dates based on aggregation level
             if agg == "Daily":
                 # For daily, show weekly format (every 7th day)
-                filtered_dates = filtered[DT].iloc[::7] if len(filtered) > 7 else filtered[DT]
-                date_format = '%d %b'
-                tick_vals = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
-                tick_text = filtered_dates.dt.strftime(date_format).tolist()
+                show_indices = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
+                show_dates = [filtered.iloc[i][DT].strftime('%d %b') for i in show_indices if i < len(filtered)]
             elif agg == "Weekly":
-                date_format = '%d %b'  # "15 Mar" 
-                tick_vals = list(range(len(filtered)))
-                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(filtered)))
+                show_dates = filtered[DT].dt.strftime('%d %b').tolist()
             else:  # Monthly
-                date_format = '%b %Y'  # "Mar 2025"
-                tick_vals = list(range(len(filtered)))
-                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(filtered)))
+                show_dates = filtered[DT].dt.strftime('%b %Y').tolist()
                 
             fig.update_xaxes(
-                type='category',
                 tickmode='array',
-                tickvals=tick_vals,
-                ticktext=tick_text
+                tickvals=show_indices,
+                ticktext=show_dates
             )
         fig.update_layout(
             height=400,
@@ -542,8 +536,8 @@ if not filtered.empty and param:
         
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
         
-        # Use datetime values for x-axis
-        x_vals = filtered[DT] if DT and DT in filtered.columns else list(range(len(filtered)))
+        # Use sequential index instead of datetime
+        x_vals = list(range(len(filtered)))
         
         for i, p in enumerate(param):
             fig.add_trace(go.Scatter(
@@ -554,29 +548,24 @@ if not filtered.empty and param:
                 line=dict(color=colors[i % len(colors)])
             ))
         
-        # Format x-axis to show month/year without gaps
+        # Format x-axis to show dates without gaps
         if DT and DT in filtered.columns:
             # Format dates based on aggregation level
             if agg == "Daily":
                 # For daily, show weekly format (every 7th day)
-                filtered_dates = filtered[DT].iloc[::7] if len(filtered) > 7 else filtered[DT]
-                date_format = '%d %b'
-                tick_vals = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
-                tick_text = filtered_dates.dt.strftime(date_format).tolist()
+                show_indices = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
+                show_dates = [filtered.iloc[i][DT].strftime('%d %b') for i in show_indices if i < len(filtered)]
             elif agg == "Weekly":
-                date_format = '%d %b'  # "15 Mar"
-                tick_vals = list(range(len(filtered)))
-                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(filtered)))
+                show_dates = filtered[DT].dt.strftime('%d %b').tolist()
             else:  # Monthly
-                date_format = '%b %Y'  # "Mar 2025"
-                tick_vals = list(range(len(filtered)))
-                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(filtered)))
+                show_dates = filtered[DT].dt.strftime('%b %Y').tolist()
                 
             fig.update_xaxes(
-                type='category',
                 tickmode='array',
-                tickvals=tick_vals,
-                ticktext=tick_text
+                tickvals=show_indices,
+                ticktext=show_dates
             )
         
         fig.update_layout(
@@ -683,7 +672,7 @@ if sensor_categories and selected_param:
         if param_data is not None and param_data.notna().any():
             # Create single line chart
             fig = px.line(
-                x=avg_filtered[DT] if DT and DT in avg_filtered.columns else list(range(len(avg_filtered))),
+                x=list(range(len(avg_filtered))),  # Use sequential index
                 y=param_data,
                 title=f"{selected_param[0]} - Averaged Values ({avg_agg})",
                 labels={"x": "Time", "y": selected_param[0]}
@@ -694,24 +683,19 @@ if sensor_categories and selected_param:
                 # Format dates based on aggregation level
                 if avg_agg == "Daily":
                     # For daily, show weekly format (every 7th day)
-                    filtered_dates = avg_filtered[DT].iloc[::7] if len(avg_filtered) > 7 else avg_filtered[DT]
-                    date_format = '%d %b'
-                    tick_vals = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
-                    tick_text = filtered_dates.dt.strftime(date_format).tolist()
+                    show_indices = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
+                    show_dates = [avg_filtered.iloc[i][DT].strftime('%d %b') for i in show_indices if i < len(avg_filtered)]
                 elif avg_agg == "Weekly":
-                    date_format = '%d %b'
-                    tick_vals = list(range(len(avg_filtered)))
-                    tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                    show_indices = list(range(len(avg_filtered)))
+                    show_dates = avg_filtered[DT].dt.strftime('%d %b').tolist()
                 else:  # Monthly
-                    date_format = '%b %Y'
-                    tick_vals = list(range(len(avg_filtered)))
-                    tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                    show_indices = list(range(len(avg_filtered)))
+                    show_dates = avg_filtered[DT].dt.strftime('%b %Y').tolist()
                     
                 fig.update_xaxes(
-                    type='category',
                     tickmode='array',
-                    tickvals=tick_vals,
-                    ticktext=tick_text
+                    tickvals=show_indices,
+                    ticktext=show_dates
                 )
             
             fig.update_layout(
@@ -742,8 +726,8 @@ if sensor_categories and selected_param:
         
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
         
-        # Use datetime values for x-axis
-        x_vals = avg_filtered[DT] if DT and DT in avg_filtered.columns else list(range(len(avg_filtered)))
+        # Use sequential index instead of datetime
+        x_vals = list(range(len(avg_filtered)))
         
         for i, p in enumerate(selected_param):
             if p in sensor_categories:
@@ -762,24 +746,19 @@ if sensor_categories and selected_param:
             # Format dates based on aggregation level
             if avg_agg == "Daily":
                 # For daily, show weekly format (every 7th day)
-                filtered_dates = avg_filtered[DT].iloc[::7] if len(avg_filtered) > 7 else avg_filtered[DT]
-                date_format = '%d %b'
-                tick_vals = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
-                tick_text = filtered_dates.dt.strftime(date_format).tolist()
+                show_indices = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
+                show_dates = [avg_filtered.iloc[i][DT].strftime('%d %b') for i in show_indices if i < len(avg_filtered)]
             elif avg_agg == "Weekly":
-                date_format = '%d %b'
-                tick_vals = list(range(len(avg_filtered)))
-                tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(avg_filtered)))
+                show_dates = avg_filtered[DT].dt.strftime('%d %b').tolist()
             else:  # Monthly
-                date_format = '%b %Y'
-                tick_vals = list(range(len(avg_filtered)))
-                tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                show_indices = list(range(len(avg_filtered)))
+                show_dates = avg_filtered[DT].dt.strftime('%b %Y').tolist()
                 
             fig.update_xaxes(
-                type='category',
                 tickmode='array',
-                tickvals=tick_vals,
-                ticktext=tick_text
+                tickvals=show_indices,
+                ticktext=show_dates
             )
         
         fig.update_layout(
