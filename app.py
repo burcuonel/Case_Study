@@ -74,52 +74,162 @@ st.markdown("""
 # ---- HELPER FUNCTIONS -----
 # =====================
 @st.cache_data(show_spinner=False)
-def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFrame:
-    """
-    Resample ONLY within business hours (Mon–Fri, 08:00–19:00) and fill gaps on the time axis.
-    Keeps UI the same, just fixes the time grid + interpolation.
-    """
-    if dt_col is None or df.empty:
-        return df
+def load_dataframe(file) -> pd.DataFrame:
+    if file is None:
+        return pd.DataFrame()
+    
+    name = getattr(file, "name", "uploaded").lower()
+    if name.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(file)
+    else:
+        df = pd.read_csv(file)
+    
+    # VERİ TEMİZLEME İŞLEMLERİ
+    with st.spinner("Veri temizleniyor..."):
+        # 1. Date ve Time kolonlarını birleştir
+        if 'Date' in df.columns and 'Time' in df.columns:
+            df['Datetime'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Time'].astype(str), errors='coerce')
+        else:
+            # Try to find and convert datetime column
+            dt_candidates = [c for c in df.columns if any(x in str(c).lower() for x in ["datetime","time","timestamp","date","hour"])]
+            for c in dt_candidates:
+                try:
+                    original_values = df[c].copy()
+                    df[c] = pd.to_datetime(df[c], errors="coerce")
+                    if df[c].notna().any():
+                        df = df.sort_values(c)
+                        break
+                    else:
+                        df[c] = original_values
+                except Exception:
+                    continue
+        
+        # 2. Saatlik zaman kolonu oluştur
+        if 'Datetime' in df.columns:
+            df['Hour'] = df['Datetime'].dt.floor('h')
+        
+        # 3. Electrical panel sütunlarını sil
+        electrical_cols = [col for col in df.columns if 'electrical panel' in col.lower()]
+        if electrical_cols:
+            df = df.drop(columns=electrical_cols)
+        
+        # 4. Ocak ayını çıkar (eğer Datetime varsa)
+        if 'Datetime' in df.columns:
+            df = df[df['Datetime'].dt.month != 1]
+        
+        # 5. Rainfall Amount kolonlarını düzelt
+        rain_cols = [c for c in df.columns if "rainfall amount" in str(c).lower()]
+        pattern_5digit = r"^\s*\d{5}([.,]\d+)?\s*$"
+        
+        for col in rain_cols:
+            raw = df[col].astype(str).str.strip()
+            mask_5 = raw.str.match(pattern_5digit, na=False)
+            
+            # sayıya çevir (virgülü noktaya)
+            num = pd.to_numeric(raw.str.replace(",", ".", regex=False), errors="coerce")
+            
+            # sadece 5 hanelileri ölçekle
+            num.loc[mask_5] = num.loc[mask_5] / 1000.0
+            num = num.round(2)
+            df[col] = num
+        
+        # 6. Temperature kolonlarında 45 ile başlayan değerleri temizle
+        temperature_columns_df = [col for col in df.columns if "Temperature" in col]
+        
+        for col in temperature_columns_df:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df.loc[df[col].astype(str).str.startswith("45", na=False), col] = np.nan
+        
+        # 7. Numerik kolonları seç
+        numeric_cols = df.select_dtypes(include='number').columns
+        if 'Hour' in numeric_cols:
+            numeric_cols = numeric_cols.difference(['Hour'])
+        
+        # 8. Saatlik ortalama hesapla (eğer Hour varsa)
+        if 'Hour' in df.columns and not df.empty:
+            hourly_avg = df.groupby('Hour', as_index=True)[numeric_cols].mean()
+            result = hourly_avg.reset_index()
+        else:
+            result = df.copy()
+        
+        # 9. Hafta içi ve saat filtrelemesi (eğer Hour varsa)
+        if 'Hour' in result.columns and not result.empty:
+            result['Weekday'] = result['Hour'].dt.weekday
+            result['HourOfDay'] = result['Hour'].dt.hour
+            
+            result = result[(result['Weekday'] <= 4) & 
+                           (result['HourOfDay'] >= 8) & 
+                           (result['HourOfDay'] <= 19)]
+            
+            result = result.drop(columns=['Weekday', 'HourOfDay'])
+        
+        # 10. Temperature kolonlarında sadece ilk 2 rakam
+        temperature_columns = [col for col in result.columns if "Temperature" in col]
+        for col in temperature_columns:
+            result[col] = result[col].apply(lambda x: int(str(int(x))[:2]) if pd.notna(x) and x != 0 else np.nan)
+        
+        # 11. TVOC kolonlarını 100'e böl
+        tvoc_columns = [col for col in result.columns if 'TVOC' in col]
+        for col in tvoc_columns:
+            result[col] = (result[col] / 100).round(2)
+        
+        # 12. Wind Speed kolonlarını düzelt
+        wind_columns = [col for col in result.columns if 'Wind Speed' in col]
+        for col in wind_columns:
+            result[col] = result[col].apply(
+                lambda x: round(float(str(int(x))[:1] + '.' + str(int(x))[1:2]), 2) if pd.notna(x) and x != 0 else np.nan
+            )
+        
+        # 13. Diğer numerik kolonları 2 ondalığa yuvarla
+        other_numeric_cols = [col for col in result.select_dtypes(include='number').columns
+                             if "Temperature" not in col and "Wind Speed" not in col]
+        
+        for col in other_numeric_cols:
+            result[col] = result[col].round(2)
+        
+        # 14. İnterpolasyon
+        occupancy_columns = [col for col in result.columns if 'Occupancy' in col]
+        
+        # Hour ve Occupancy sütunları hariç tüm numeric sütunlarda interpolasyon yap
+        numeric_cols_for_interp = result.select_dtypes(include='number').columns
+        if 'Hour' in numeric_cols_for_interp:
+            numeric_cols_for_interp = numeric_cols_for_interp.difference(['Hour'])
+        numeric_cols_for_interp = numeric_cols_for_interp.difference(occupancy_columns)
+        
+        # Diğer sütunlarda interpolasyon yap
+        for col in numeric_cols_for_interp:
+            result[col] = result[col].interpolate(method='linear', limit_direction='both')
+            result[col] = result[col].ffill().bfill()
+        
+        # Occupancy sütunlarındaki NaN değerleri 0 ile doldur
+        for col in occupancy_columns:
+            result[col] = result[col].fillna(0)
+    
+    # Datetime kolonu varsa sırala
+    if 'Hour' in result.columns:
+        result = result.sort_values('Hour')
+    elif 'Datetime' in result.columns:
+        result = result.sort_values('Datetime')
+    
+    return result
 
-    # 1) Time index
-    g = df.copy()
-    g = g.set_index(dt_col).sort_index()
-
-    # 2) Numeric-only for aggregation
-    num_cols = g.select_dtypes(include=[np.number]).columns
-
-    # 3) First aggregate to the requested rule (Hourly/Daily/Monthly)
-    #    (We will only apply business-hour logic for hourly level, which is where gaps matter)
-    out = g[num_cols].resample(rule).mean()
-
-    # If not hourly, just return as-is (no business-hour grid needed)
-    if rule != "H":
-        # Clean infinities, safe interpolate on time just in case
-        out = (out.replace([np.inf, -np.inf], np.nan)
-                  .interpolate(method="time", limit_direction="both"))
-        return out.reset_index()
-
-    # 4) Build a FULL hourly index between min/max
-    start = out.index.min().floor("H")
-    end   = out.index.max().ceil("H")
-    hourly_index = pd.date_range(start=start, end=end, freq="H")
-
-    # 5) Restrict that hourly grid to Mon–Fri & 08:00–19:00
-    # Weekday: Monday=0 ... Sunday=6  -> keep 0..4
-    weekday_mask = hourly_index.weekday <= 4
-    hours = hourly_index.hour
-    hour_mask = (hours >= 8) & (hours <= 19)
-    business_index = hourly_index[weekday_mask & hour_mask]
-
-    # 6) Reindex ONLY to that business grid, so gaps are created only inside your window
-    out = out.reindex(business_index)
-
-    # 7) Replace infinities, then time-based interpolation across business hours
-    out = (out.replace([np.inf, -np.inf], np.nan)
-              .interpolate(method="time", limit_direction="both"))
-
-    return out.reset_index().rename(columns={"index": dt_col})
+def get_datetime_column(df: pd.DataFrame) -> Optional[str]:
+    # Önce Hour kolonunu kontrol et
+    if 'Hour' in df.columns:
+        try:
+            if np.issubdtype(df['Hour'].dtype, np.datetime64):
+                return 'Hour'
+        except Exception:
+            pass
+    
+    # Sonra diğer datetime kolonları
+    for c in df.columns:
+        try:
+            if np.issubdtype(df[c].dtype, np.datetime64):
+                return c
+        except Exception:
+            continue
+    return None
 
 @st.cache_data(show_spinner=False)
 def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFrame:
@@ -300,7 +410,7 @@ st.markdown("---")
 
 # Sidebar
 with st.sidebar:
-    st.markdown("### 📂 Upload Data (CSV/XLSX)")
+    st.markdown("### 📂 Dosya Yükle ve Temizle")
     uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
     
     if uploaded:
@@ -760,4 +870,4 @@ for i, item in enumerate(reversed(st.session_state.qa_list)):
         # tek öğe silme
         if st.button("Delete this", key=del_key):
             st.session_state.qa_list = [x for x in st.session_state.qa_list if x["id"] != item["id"]]
-            st.rerun() 
+            st.rerun()
