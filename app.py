@@ -498,17 +498,25 @@ if not filtered.empty and param:
         if DT and DT in filtered.columns:
             # Format dates based on aggregation level
             if agg == "Daily":
-                date_format = '%d %b'  # "15 Mar"
+                # For daily, show weekly format (every 7th day)
+                filtered_dates = filtered[DT].iloc[::7] if len(filtered) > 7 else filtered[DT]
+                date_format = '%d %b'
+                tick_vals = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
+                tick_text = filtered_dates.dt.strftime(date_format).tolist()
             elif agg == "Weekly":
                 date_format = '%d %b'  # "15 Mar" 
+                tick_vals = list(range(len(filtered)))
+                tick_text = filtered[DT].dt.strftime(date_format).tolist()
             else:  # Monthly
                 date_format = '%b %Y'  # "Mar 2025"
+                tick_vals = list(range(len(filtered)))
+                tick_text = filtered[DT].dt.strftime(date_format).tolist()
                 
             fig.update_xaxes(
                 type='category',
                 tickmode='array',
-                tickvals=list(range(len(filtered))),
-                ticktext=filtered[DT].dt.strftime(date_format).tolist()
+                tickvals=tick_vals,
+                ticktext=tick_text
             )
         fig.update_layout(
             height=400,
@@ -548,10 +556,27 @@ if not filtered.empty and param:
         
         # Format x-axis to show month/year without gaps
         if DT and DT in filtered.columns:
+            # Format dates based on aggregation level
+            if agg == "Daily":
+                # For daily, show weekly format (every 7th day)
+                filtered_dates = filtered[DT].iloc[::7] if len(filtered) > 7 else filtered[DT]
+                date_format = '%d %b'
+                tick_vals = list(range(0, len(filtered), 7)) if len(filtered) > 7 else list(range(len(filtered)))
+                tick_text = filtered_dates.dt.strftime(date_format).tolist()
+            elif agg == "Weekly":
+                date_format = '%d %b'  # "15 Mar"
+                tick_vals = list(range(len(filtered)))
+                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+            else:  # Monthly
+                date_format = '%b %Y'  # "Mar 2025"
+                tick_vals = list(range(len(filtered)))
+                tick_text = filtered[DT].dt.strftime(date_format).tolist()
+                
             fig.update_xaxes(
                 type='category',
-                categoryorder='array',
-                categoryarray=filtered[DT].dt.strftime('%b %Y').tolist()
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=tick_text
             )
         
         fig.update_layout(
@@ -601,7 +626,7 @@ with col1:
     sensor_categories = categorize_sensors(df)
     if sensor_categories:
         available_params = list(sensor_categories.keys())
-        selected_param = st.selectbox("", options=available_params, key="averaged_param_select", label_visibility="collapsed")
+        selected_param = st.multiselect("", options=available_params, default=[available_params[0]] if available_params else [], key="averaged_param_select", label_visibility="collapsed")
     else:
         st.warning("No sensor categories could be identified from the data")
         st.stop()
@@ -650,26 +675,43 @@ else:
 # Get categorized sensor data for filtered data
 sensor_categories = categorize_sensors(avg_filtered)
 
-if sensor_categories:
-    # Display selected parameter chart
-    if selected_param in sensor_categories:
-        param_data = sensor_categories[selected_param]
+if sensor_categories and selected_param:
+    if len(selected_param) == 1:
+        # Single parameter - display selected parameter chart
+        param_data = sensor_categories.get(selected_param[0])
         
-        if param_data.notna().any():
+        if param_data is not None and param_data.notna().any():
             # Create single line chart
             fig = px.line(
                 x=avg_filtered[DT] if DT and DT in avg_filtered.columns else list(range(len(avg_filtered))),
                 y=param_data,
-                title=f"{selected_param} - Averaged Values ({avg_agg})",
-                labels={"x": "Time", "y": selected_param}
+                title=f"{selected_param[0]} - Averaged Values ({avg_agg})",
+                labels={"x": "Time", "y": selected_param[0]}
             )
             
-            # Format x-axis to show month/year without gaps
+            # Format x-axis to show dates without gaps
             if DT and DT in avg_filtered.columns:
+                # Format dates based on aggregation level
+                if avg_agg == "Daily":
+                    # For daily, show weekly format (every 7th day)
+                    filtered_dates = avg_filtered[DT].iloc[::7] if len(avg_filtered) > 7 else avg_filtered[DT]
+                    date_format = '%d %b'
+                    tick_vals = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
+                    tick_text = filtered_dates.dt.strftime(date_format).tolist()
+                elif avg_agg == "Weekly":
+                    date_format = '%d %b'
+                    tick_vals = list(range(len(avg_filtered)))
+                    tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                else:  # Monthly
+                    date_format = '%b %Y'
+                    tick_vals = list(range(len(avg_filtered)))
+                    tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                    
                 fig.update_xaxes(
                     type='category',
-                    categoryorder='array',
-                    categoryarray=avg_filtered[DT].dt.strftime('%b %Y').tolist()
+                    tickmode='array',
+                    tickvals=tick_vals,
+                    ticktext=tick_text
                 )
             
             fig.update_layout(
@@ -681,7 +723,7 @@ if sensor_categories:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Show statistics for selected parameter
+            # Show statistics for single parameter
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Average", f"{param_data.mean():.2f}")
@@ -692,10 +734,87 @@ if sensor_categories:
             with col4:
                 st.metric("Std Dev", f"{param_data.std():.2f}")
         else:
-            st.warning(f"No valid data available for {selected_param}")
-
+            st.warning(f"No valid data available for {selected_param[0]}")
+    
+    elif len(selected_param) > 1:
+        # Multiple parameters - overlayed line chart
+        fig = go.Figure()
+        
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+        
+        # Use datetime values for x-axis
+        x_vals = avg_filtered[DT] if DT and DT in avg_filtered.columns else list(range(len(avg_filtered)))
+        
+        for i, p in enumerate(selected_param):
+            if p in sensor_categories:
+                param_data = sensor_categories[p]
+                if param_data.notna().any():
+                    fig.add_trace(go.Scatter(
+                        x=x_vals,
+                        y=param_data,
+                        mode='lines',
+                        name=p,
+                        line=dict(color=colors[i % len(colors)])
+                    ))
+        
+        # Format x-axis to show dates without gaps
+        if DT and DT in avg_filtered.columns:
+            # Format dates based on aggregation level
+            if avg_agg == "Daily":
+                # For daily, show weekly format (every 7th day)
+                filtered_dates = avg_filtered[DT].iloc[::7] if len(avg_filtered) > 7 else avg_filtered[DT]
+                date_format = '%d %b'
+                tick_vals = list(range(0, len(avg_filtered), 7)) if len(avg_filtered) > 7 else list(range(len(avg_filtered)))
+                tick_text = filtered_dates.dt.strftime(date_format).tolist()
+            elif avg_agg == "Weekly":
+                date_format = '%d %b'
+                tick_vals = list(range(len(avg_filtered)))
+                tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+            else:  # Monthly
+                date_format = '%b %Y'
+                tick_vals = list(range(len(avg_filtered)))
+                tick_text = avg_filtered[DT].dt.strftime(date_format).tolist()
+                
+            fig.update_xaxes(
+                type='category',
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=tick_text
+            )
+        
+        fig.update_layout(
+            title=f"Multiple Averaged Parameters - Time Series ({avg_agg})",
+            xaxis_title="Time",
+            yaxis_title="Values",
+            height=400,
+            hovermode='x',
+            title_font_size=16,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Statistics for multiple parameters
+        st.markdown("**📊 Statistics:**")
+        stats_data = []
+        for p in selected_param:
+            if p in sensor_categories:
+                param_data = sensor_categories[p]
+                stats_data.append({
+                    "Parameter": p,
+                    "Average": f"{param_data.mean():.2f}",
+                    "Max": f"{param_data.max():.2f}",
+                    "Min": f"{param_data.min():.2f}",
+                    "Std Dev": f"{param_data.std():.2f}"
+                })
+        st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
 else:
-    st.warning("No sensor categories could be identified from the data")
+    st.info("Please select at least one parameter to display")
 
 st.markdown("---")
 
