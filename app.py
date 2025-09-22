@@ -445,13 +445,13 @@ with col1:
 
 with col2:
     st.markdown("**Time Scale:**")
-    agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], label_visibility="collapsed")
+    agg = st.selectbox("", ["Daily", "Weekly", "Monthly"], label_visibility="collapsed")
 
 # Apply resampling
 DT = get_datetime_column(df)
 base = df.copy()
 if DT and agg != "Raw":
-    rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[agg]
+    rule = {"Daily":"D", "Weekly":"W", "Monthly":"MS"}[agg]
     base = resample_df(df, DT, rule)
 
 # Date range filter
@@ -488,17 +488,17 @@ if not filtered.empty and param:
     if len(param) == 1:
         # Single parameter - line chart
         fig = px.line(
-            filtered,
-            x=DT if DT and DT in filtered.columns else filtered.index,
+            filtered.reset_index(drop=True),
+            x=filtered.reset_index(drop=True).index,
             y=param[0],
             title=f"{param[0]} - Time Series ({agg})",
-            labels={"x": "Time", "y": param[0]}
+            labels={"x": "Data Points", "y": param[0]}
         )
         fig.update_layout(
             height=400,
             hovermode='x',
             title_font_size=16,
-            xaxis=dict(type='category') if DT and DT in filtered.columns else {}
+            xaxis_title="Data Points"
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -519,9 +519,11 @@ if not filtered.empty and param:
         
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
         
+        x_vals = list(range(len(filtered)))
+        
         for i, p in enumerate(param):
             fig.add_trace(go.Scatter(
-                x=filtered[DT] if DT and DT in filtered.columns else filtered.index,
+                x=x_vals,
                 y=filtered[p],
                 mode='lines',
                 name=p,
@@ -530,12 +532,11 @@ if not filtered.empty and param:
         
         fig.update_layout(
             title=f"Multiple Parameters - Time Series ({agg})",
-            xaxis_title="Time",
+            xaxis_title="Data Points",
             yaxis_title="Values",
             height=400,
             hovermode='x',
             title_font_size=16,
-            xaxis=dict(type='category') if DT and DT in filtered.columns else {},
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -583,11 +584,11 @@ with col1:
 
 with col2:
     st.markdown("**Time Scale:**")
-    avg_agg = st.selectbox("", ["Hourly", "Daily", "Monthly"], key="avg_agg_select", label_visibility="collapsed")
+    avg_agg = st.selectbox("", ["Daily", "Weekly", "Monthly"], key="avg_agg_select", label_visibility="collapsed")
 
 # Apply resampling for averaged sensor parameters
 if DT and avg_agg != "Raw":
-    avg_rule = {"Hourly":"H", "Daily":"D", "Monthly":"MS"}[avg_agg]
+    avg_rule = {"Daily":"D", "Weekly":"W", "Monthly":"MS"}[avg_agg]
     avg_base = resample_df(df, DT, avg_rule)
 else:
     avg_base = df.copy()
@@ -633,10 +634,10 @@ if sensor_categories:
         if param_data.notna().any():
             # Create single line chart
             fig = px.line(
-                x=avg_filtered[DT] if DT and DT in avg_filtered.columns else avg_filtered.index,
+                x=list(range(len(avg_filtered))),
                 y=param_data,
                 title=f"{selected_param} - Averaged Values ({avg_agg})",
-                labels={"x": "Time", "y": selected_param}
+                labels={"x": "Data Points", "y": selected_param}
             )
             
             fig.update_layout(
@@ -644,7 +645,7 @@ if sensor_categories:
                 hovermode='x',
                 title_font_size=16,
                 showlegend=False,
-                xaxis=dict(type='category') if DT and DT in avg_filtered.columns else {}
+                xaxis_title="Data Points"
             )
             
             st.plotly_chart(fig, use_container_width=True)
