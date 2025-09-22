@@ -288,22 +288,6 @@ st.markdown("---")
 with st.sidebar:
     st.markdown("### 📂 Upload Data (CSV/XLSX)")
     uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
-
-# === Cleaning integration (auto) ===
-try:
-    _df_exists = 'df' in locals() or 'df' in globals()
-except Exception:
-    _df_exists = False
-
-if _df_exists and isinstance(df, pd.DataFrame):
-    try:
-        df = clean_uploaded_dataset(df)
-    except Exception as _e:
-        # Fail silently to avoid altering UI
-        pass
-# === End cleaning integration (auto) ===
-
-
     
     if uploaded:
         st.success("✅ File uploaded successfully")
@@ -701,98 +685,6 @@ st.markdown("---")
 # 🧠 Claude Chat — Enhanced UI
 # =========================
 import uuid
-
-def clean_uploaded_dataset(df):
-    """
-    Apply dataset cleaning steps derived from the user's notebook.
-    The function is defensive: it only operates on columns it finds.
-    It returns a new cleaned DataFrame with the same columns (unless noted).
-    """
-    import pandas as pd
-    import numpy as np
-
-    dfc = df.copy()
-
-    # 1) Try to unify decimal separators and convert numeric-looking columns
-    for col in dfc.columns:
-        if dfc[col].dtype == object:
-            # replace comma decimal to dot
-            dfc[col] = dfc[col].str.replace(",", ".", regex=False)
-            # strip spaces
-            dfc[col] = dfc[col].str.strip()
-
-    # Convert obvious numeric columns
-    for col in dfc.columns:
-        try:
-            dfc[col] = pd.to_numeric(dfc[col])
-        except Exception:
-            pass
-
-    # 2) Try to parse a datetime index if present
-    for candidate in ["timestamp","time","date","datetime","Date","DATETIME","TIMESTAMP"]:
-        if candidate in dfc.columns:
-            try:
-                dfc[candidate] = pd.to_datetime(dfc[candidate], errors="coerce", dayfirst=True)
-            except Exception:
-                pass
-    # set index to first datetime-like column if exists
-    dt_col = None
-    for c in dfc.columns:
-        if str(dfc[c].dtype).startswith("datetime64"):
-            dt_col = c
-            break
-    if dt_col:
-        dfc = dfc.sort_values(dt_col).set_index(dt_col)
-
-    # 3) Specific fixes often seen in the user's datasets
-    # Relative Humidity scale error like 470.0 -> 47.00
-    for col in dfc.columns:
-        if "humidity" in col.lower() or "rh" in col.lower():
-            # If many values > 100, divide by 10 if looks like factor 10
-            over100_ratio = (dfc[col] > 100).mean()
-            if over100_ratio > 0.2:
-                dfc[col] = dfc[col] / 10.0
-
-    # Temperature outliers starting with 45xxx (e.g., rainfall anomaly pattern)
-    for col in dfc.columns:
-        if "temp" in col.lower() or "temperature" in col.lower():
-            dfc.loc[dfc[col] > 200, col] = np.nan  # drop impossible values
-
-    # TVOC scale normalize if looks like factor 100
-    for col in dfc.columns:
-        if "tvoc" in col.lower():
-            # If median is very large, scale down
-            med = pd.to_numeric(dfc[col], errors="coerce").median()
-            if med and med > 5000:
-                dfc[col] = dfc[col] / 100.0
-
-    # Wind speed "4,5" or "4.5" already handled by decimal unification
-
-    # 4) Interpolate mild gaps for numeric columns
-    num_cols = dfc.select_dtypes(include="number").columns
-    if len(num_cols) > 0:
-        dfc[num_cols] = dfc[num_cols].replace([np.inf, -np.inf], np.nan)
-        try:
-            dfc[num_cols] = dfc[num_cols].interpolate(limit_direction="both")
-        except Exception:
-            pass
-
-    # 5) Optionally resample hourly if index is datetime-like and high frequency
-    if isinstance(dfc.index, pd.DatetimeIndex):
-        try:
-            freq = pd.infer_freq(dfc.index[:20])
-        except Exception:
-            freq = None
-        if freq and freq.lower() not in ("h", "1h"):
-            # aggregate: mean
-            dfc = dfc.resample("1H").mean()
-
-    # 6) Round numeric columns to 2 decimals for consistency
-    if len(num_cols) > 0:
-        dfc[num_cols] = dfc[num_cols].round(2)
-
-    return dfc
-
 
 # --- API key ---
 API_KEY = (st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
