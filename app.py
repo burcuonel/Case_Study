@@ -238,6 +238,13 @@ def resample_df(df: pd.DataFrame, dt_col: Optional[str], rule: str) -> pd.DataFr
     g = df.set_index(dt_col)
     num_cols = g.select_dtypes(include=[np.number]).columns
     out = g[num_cols].resample(rule).mean().reset_index()
+    
+    # Remove weekends from resampled data
+    if rule in ['D', 'W', 'MS']:  # Daily, Weekly, Monthly
+        out['weekday'] = out[dt_col].dt.weekday
+        out = out[out['weekday'] <= 4]  # Keep only Mon-Fri (0-4)
+        out = out.drop(columns=['weekday'])
+    
     return out
 
 def categorize_sensors(df):
