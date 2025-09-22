@@ -410,7 +410,7 @@ st.markdown("---")
 
 # Sidebar
 with st.sidebar:
-    st.markdown("### 📂 Dosya Yükle ve Temizle")
+    st.markdown("### 📂 Upload and Clean Data")
     uploaded = st.file_uploader("", type=["csv","xlsx","xls"], label_visibility="collapsed")
     
     if uploaded:
@@ -492,6 +492,7 @@ if not filtered.empty and param:
         title=f"{param} - Time Series ({agg})",
         labels={"x": "Time", "y": param}
     )
+    fig.update_traces(connectgaps=True)  # Connect gaps in the data
     fig.update_layout(
         height=400,
         hovermode='x',
@@ -588,6 +589,7 @@ if sensor_categories:
                 labels={"x": "Time", "y": selected_param}
             )
             
+            fig.update_traces(connectgaps=True)  # Connect gaps in the data
             fig.update_layout(
                 height=400,
                 hovermode='x',
