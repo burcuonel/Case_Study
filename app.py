@@ -406,14 +406,15 @@ st.markdown('''
 <div class="main-header">
     <div class="logo-placeholder">UNIBO</div>
     <div>
-        <div style="font-size: 1.8rem; line-height: 1.2;">Leveraging Artificial Intelligence for Digital Twin Data Interaction:</div>
-        <div style="font-size: 1.6rem; color: #2c5282; line-height: 1.2;">A BIM-Based Framework for Building Renovations</div>
-        <div style="font-size: 1.1rem; color: #666; margin-top: 0.5rem;">Emine Burcu Önel - Building Engineering-Architecture</div>
+        <div style="font-size: 1.8rem; line-height: 1.3; margin-bottom: 0.5rem;">Leveraging Artificial Intelligence for Digital Twin Data Interaction: A BIM-Based Framework for Building Renovations</div>
+        <div style="font-size: 1.1rem; color: #2c5282; margin-bottom: 0.3rem;">Master Thesis in BUILDING RENOVATION WORKSHOP I.C.</div>
+        <div style="font-size: 0.95rem; color: #666; margin-bottom: 0.3rem;"><strong>ALMA MATER STUDIORUM - UNIVERSITÀ DI BOLOGNA, SCHOOL OF ENGINEERING AND ARCHITECTURE</strong>, <em>DEPARTMENT OF ARCHITECTURE</em></div>
+        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.3rem;"><em>SECOND CYCLE DEGREE IN BUILDING ENGINEERING-ARCHITECTURE</em></div>
+        <div style="font-size: 1rem; color: #1f4e79;">Candidate: Emine Burcu Önel</div>
     </div>
 </div>
 ''', unsafe_allow_html=True)
 
-st.caption("🏛️ Alma Mater Studiorum - Università di Bologna - Founded 1088 - The First University in the World")
 st.markdown("---")
 
 # Sidebar
